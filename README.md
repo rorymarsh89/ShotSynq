@@ -15,7 +15,7 @@ then open the result in Premiere Pro, DaVinci Resolve or Final Cut Pro.
 
 Version 0.9.0 · [All releases](../../releases)
 
-<img src="docs/screenshot.png" alt="ShotSynq with three devices synced on one timeline" width="860">
+https://github.com/user-attachments/assets/15d11953-9125-4c07-b0a0-4329f2d3a463
 
 [Releases](../../releases) · [How it works](#how-sync-works) · [Limitations](#limitations) · [Build from source](#build-from-source)
 
