@@ -15,7 +15,11 @@ then open the result in Premiere Pro, DaVinci Resolve or Final Cut Pro.
 
 Version 0.9.0 · [All releases](../../releases)
 
-https://github.com/user-attachments/assets/15d11953-9125-4c07-b0a0-4329f2d3a463
+
+
+https://github.com/user-attachments/assets/16e9d0ec-bf21-4b6c-a69e-11fb5f86995c
+
+
 
 [Releases](../../releases) · [How it works](#how-sync-works) · [Limitations](#limitations) · [Build from source](#build-from-source)
 
