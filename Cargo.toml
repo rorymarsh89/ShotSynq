@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/shotsynq-core", "src-tauri"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 3   # keep FFT/sync fast in `cargo tauri dev`
+
+[profile.dev.package.shotsynq-core]
+opt-level = 3   # the sync engine is slow unoptimised

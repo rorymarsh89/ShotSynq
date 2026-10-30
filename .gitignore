@@ -1,0 +1,4 @@
+/target
+/src-tauri/gen
+/src-tauri/binaries/*.exe
+/src-tauri/binaries/FFMPEG-*.txt

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShotSynq</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app">
+
+    <!-- Titlebar -->
+    <div class="titlebar">
+      <div class="titlebar-left">
+        <img class="app-icon app-logo" src="logo.svg" alt="">
+        <span class="app-title">ShotSynq</span>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btn-add">+ Add media</button>
+        <button class="btn btn-sync" id="btn-sync" disabled>&#x21BB; Synchronise</button>
+        <button class="btn btn-cancel"      id="btn-cancel" style="display:none">&#x2715; Cancel</button>
+        <div class="split" id="export-split">
+          <button class="btn btn-export" id="btn-export" disabled>&#x2191; Export</button>
+          <button class="btn btn-export split-caret" id="btn-export-menu" disabled title="Editor and export options">&#x25BE;</button>
+          <div class="dropdown" id="export-menu" style="display:none">
+            <div class="dd-label">Export to</div>
+            <button type="button" class="dd-item" data-fmt="premiere"><span class="dd-check"></span>Adobe Premiere Pro</button>
+            <button type="button" class="dd-item" data-fmt="resolve"><span class="dd-check"></span>DaVinci Resolve</button>
+            <button type="button" class="dd-item" data-fmt="fcpxml"><span class="dd-check"></span>Final Cut Pro</button>
+            <div class="ctx-sep"></div>
+            <label class="dd-toggle" title="Camera clips keep their audio where no recorder was running"><input type="checkbox" id="opt-strip-audio"> Use recorder audio instead of camera audio</label>
+            <label class="dd-toggle"><input type="checkbox" id="opt-drop-unsynced"> Leave out unsynchronised clips</label>
+          </div>
+        </div>
+        <button class="btn btn-clear"       id="btn-clear" style="display:none">Clear all</button>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="body">
+
+      <!-- Sidebar -->
+      <div class="sidebar" id="sidebar">
+        <div class="sidebar-head">Media</div>
+        <div id="sidebar-tracks"></div>
+        <div class="about">
+          <span id="about-version">ShotSynq</span>
+          <button type="button" class="about-link" id="btn-licences">Licences</button>
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="timeline">
+        <div class="ruler-wrap">
+          <canvas id="ruler"></canvas>
+        </div>
+        <div class="tracks-scroll" id="tracks-scroll">
+          <div class="tracks-inner" id="tracks-inner">
+            <div id="drop-hint" class="drop-hint">
+              <button type="button" class="drop-target" id="drop-target">
+                <span class="drop-plus">+</span>
+                <span>Drop media files here &mdash; or click to add</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div id="tray" class="tray" style="display:none">
+          <div class="tray-head">
+            <span class="tray-title">Unplaced &middot; <span id="tray-count">0</span></span>
+            <span class="tray-sub">No matching sound found</span>
+          </div>
+          <div id="tray-clips" class="tray-clips"></div>
+        </div>
+        <div class="zoombar" id="zoombar">
+          <div class="zoombar-handle" id="zoombar-handle">
+            <div class="zoombar-grip zoombar-grip-l" id="zoombar-grip-l"></div>
+            <div class="zoombar-grip zoombar-grip-r" id="zoombar-grip-r"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Status bar -->
+    <div class="statusbar">
+      <div id="status-dot" class="status-dot" style="display:none"></div>
+      <div id="status-chips" class="status-chips" style="display:none"></div>
+      <span id="status-text" class="status-text">Add media files to get started</span>
+      <span class="zoom-hint" id="zoom-hint">Ctrl+scroll to zoom &nbsp;&middot;&nbsp; scroll to pan &nbsp;&middot;&nbsp; drag handle ends to resize view</span>
+      <span class="footer-stats" id="footer-stats" style="display:none"
+            title="Ctrl+scroll to zoom · scroll to pan · drag handle ends to resize view"></span>
+    </div>
+
+  </div>
+
+  <!-- Clip right-click menu -->
+  <div id="ctx-menu" class="ctx-menu" style="display:none">
+    <button type="button" data-action="open-clip">Open clip</button>
+    <button type="button" data-action="reveal-clip">Show in File Explorer</button>
+    <div class="ctx-sep"></div>
+    <button type="button" data-action="remove-clip">Remove clip</button>
+    <button type="button" data-action="remove-unsynced">Remove all unsynchronised clips</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

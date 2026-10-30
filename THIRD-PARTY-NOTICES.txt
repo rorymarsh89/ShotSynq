@@ -1,0 +1,31 @@
+ShotSynq - third-party software
+===============================
+
+ShotSynq itself is released under the MIT License (see LICENSE.txt).
+It includes or uses the following third-party software.
+
+
+FFmpeg (ffmpeg.exe, ffprobe.exe)
+--------------------------------
+ShotSynq ships unmodified FFmpeg executables, built by gyan.dev
+("essentials" build), and runs them as separate programs to read media
+files. FFmpeg is licensed under the GNU General Public License version 3
+(GPLv3) in this build. The full licence text is in FFMPEG-LICENSE.txt and
+the exact version shipped is recorded in FFMPEG-VERSION.txt, both next to
+this file.
+
+  FFmpeg project and source code:  https://ffmpeg.org/download.html
+                                   https://github.com/FFmpeg/FFmpeg
+  Build used (with source links):  https://www.gyan.dev/ffmpeg/builds/
+
+You may request the corresponding source for the shipped FFmpeg build at
+any time by contacting the ShotSynq author; it is also available from the
+links above.
+
+
+Rust libraries
+--------------
+ShotSynq is built with open-source Rust crates, including Tauri,
+RustFFT/RealFFT, Serde and uuid, each under the MIT and/or Apache-2.0
+licences. Their licence texts are available from https://crates.io and
+each project's repository.
