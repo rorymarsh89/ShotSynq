@@ -31,7 +31,16 @@ https://github.com/user-attachments/assets/16e9d0ec-bf21-4b6c-a69e-11fb5f86995c
 
 ShotSynq is a free, open-source alternative to PluralEyes and Syncaila. Add the footage from every camera and the files from your audio recorder. ShotSynq matches them by their sound, places every clip on one timeline, and exports it to your editor.
 
-It runs entirely on your computer. Nothing is uploaded, and your original files are never changed.
+## Doesn't my editor already do this?
+
+For simple jobs, yes - for one camera and one recorder.
+
+ShotSynq is for your whole shoot, where built-in sync struggles:
+
+- **Cameras that start and stop.** Dozens of clips per camera stay on one lane per device instead of spilling onto a new track for every recording.
+- **Messy, real-world days.** Cameras that wandered away from the main audio, a recorder that only ran for part of the day, takes with nothing in common. ShotSynq keeps what it can prove and doesn't force the rest.
+- **No silent failures.** Anything it couldn't match goes to an Unplaced tray, so you know exactly what to check, rather than finding clips scattered or offset later.
+- **One sync, any editor.** The same result goes to Premiere Pro, DaVinci Resolve or Final Cut Pro. No timecode needed.
 
 ## From shoot to edit
 
