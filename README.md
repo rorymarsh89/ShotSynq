@@ -13,7 +13,7 @@ then open the result in Premiere Pro, DaVinci Resolve or Final Cut Pro.
 
 <a href="../../releases/latest"><img src="https://img.shields.io/badge/Download_for_Windows-Windows_10_%2F_11_·_x64-1f6feb?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="44"></a>
 
-Version 0.9.0 · [All releases](../../releases)
+Version 0.10.0 · [All releases](../../releases)
 
 
 
@@ -39,14 +39,14 @@ ShotSynq is for your whole shoot, where built-in sync struggles:
 
 - **Cameras that start and stop.** Dozens of clips per camera stay on one lane per device instead of spilling onto a new track for every recording.
 - **Messy, real-world days.** Cameras that wandered away from the main audio, a recorder that only ran for part of the day, takes with nothing in common. ShotSynq keeps what it can prove and doesn't force the rest.
-- **No silent failures.** Anything it couldn't match goes to an Unplaced tray, so you know exactly what to check, rather than finding clips scattered or offset later.
+- **No silent failures.** Anything it couldn't match goes on its own Unsynced lane, so you know exactly what to check, rather than finding clips scattered or offset later.
 - **One sync, any editor.** The same result goes to Premiere Pro, DaVinci Resolve or Final Cut Pro. No timecode needed.
 
 ## From shoot to edit
 
 1. **Add media.** Drag in files or whole card folders, or click **+ Add media**. Files are grouped by device automatically.
-2. **Synchronise.** Usually done in about a second. Anything that couldn't be matched goes to a separate tray instead of being guessed at.
-3. **Export.** Pick your editor once; ShotSynq remembers it.
+2. **Synchronise.** Usually done in about a second. Anything that couldn't be matched goes on an Unsynced lane at the end instead of being guessed at.
+3. **Export.** Choose your editor and options in the export dialog; ShotSynq remembers them.
 
 | Editor | Export format |
 |---|---|
@@ -59,12 +59,13 @@ ShotSynq is for your whole shoot, where built-in sync struggles:
 - **Cameras and recorders together:** any mix of cameras, phones and audio recorders, as long as they heard the same sound.
 - **Different mics:** matching works on the rhythm of the sound, not its tone, so a camera's on-board mic still lines up with a lav or recorder.
 - **A whole day of takes:** separate takes are laid out one after another in recording order, using each camera's clock and file numbering.
-- **Clips that don't match:** these go to an **Unplaced** tray instead of a made-up position, so the timeline only shows real placements. Right-click to open a clip or show it in File Explorer.
-- **Recorder audio:** optionally replace camera (scratch) audio with recorder audio. This only happens where a recorder was actually running, so you never get silent gaps.
+- **Clips that don't match:** these go on an **Unsynced** lane after the synced section, with their waveforms, instead of a made-up position. They export on their own tracks at the end of the timeline, or can be left out. Right-click to open a clip or show it in File Explorer.
+- **Finished edits added by mistake:** an export of your edit matches the shoot in several places at once. ShotSynq spots this and leaves it unsynced rather than placing it wrongly.
+- **Remove camera audio:** optionally drop camera (scratch) audio in favour of recorder audio. This only happens where a recorder was actually running, so you never get silent gaps.
 - **Device names:** reads the camera model from file metadata where it's available (for example "Canon EOS C70") and names tracks Camera 1, Camera 2, Recorder 1.
-- **Clips to review:** low-confidence matches are outlined in amber. Click the counters in the status bar to highlight synced, review or unplaced clips.
+- **Clips to review:** low-confidence matches are outlined in amber. Click the counters in the status bar to highlight synced, review or unsynced clips.
 
-**Supported files:** anything FFmpeg can read with an audio track, including MP4, MOV, MXF, MTS, AVI, MKV, WAV/BWF, MP3, AAC and M4A.
+**Supported files:** anything FFmpeg can read with an audio track, including MP4, MOV, MXF, MTS, AVI, MKV, WAV/BWF, FLAC, MP3, AAC and M4A.
 
 ## How sync works
 
@@ -72,7 +73,7 @@ ShotSynq compares every clip with every clip from the other devices, looking for
 
 1. **Strong matches become links.** A link is rejected if it would put two clips from the same camera on top of each other, since one camera can't record twice at once.
 2. **Positions are solved from all the links together.** Real gaps between recordings are kept.
-3. **Clips without a reliable link stay unplaced.** ShotSynq never forces a clip into a position.
+3. **Clips without a reliable link are left unsynced.** ShotSynq never forces a clip into a position.
 
 On a 49-clip test shoot (two cameras and a TASCAM recorder), every clip PluralEyes synced landed within two frames of PluralEyes' position. ShotSynq also placed a short take PluralEyes missed.
 
@@ -128,7 +129,7 @@ cargo run --release -p shotsynq-core --example cli -- tracks.json --export resol
 ```json
 [
   {"name": "Camera 1", "paths": ["C:/shoot/A/C0001.MXF", "C:/shoot/A/C0002.MXF"]},
-  {"name": "Recorder", "paths": ["C:/shoot/audio/ZOOM0001.WAV"]}
+  {"name": "Recorder 1", "paths": ["C:/shoot/audio/ZOOM0001.WAV"]}
 ]
 ```
 
