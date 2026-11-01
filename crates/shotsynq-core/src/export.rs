@@ -202,38 +202,58 @@ fn link(parent: &mut El, media: &str, track: impl ToString, clip: impl ToString,
     l.text("linkclipref", r);
 }
 
-/// Unsynced clips go after the synced region (same rules as exporter.py).
-pub fn move_unsynced_to_end(tracks: &mut [Track]) {
+/// Where unsynced clips go: one after another, 2 s after the end of the
+/// synced section (from 0 if nothing synced). Returns (track, clip, offset).
+/// The app's Unsynced lane and the export use the same layout.
+pub fn unsynced_layout(tracks: &[Track]) -> Vec<(usize, usize, f64)> {
     let synced_end = tracks
         .iter()
         .flat_map(|t| &t.clips)
         .filter(|c| c.synced)
         .map(|c| c.offset + c.duration)
         .fold(f64::NEG_INFINITY, f64::max);
-    if synced_end == f64::NEG_INFINITY {
-        return;
-    }
-    let mut cursor = synced_end + 2.0;
-    for t in tracks.iter_mut() {
-        let mut idx: Vec<usize> = (0..t.clips.len()).collect();
+    let mut cursor = if synced_end.is_finite() { synced_end + 2.0 } else { 0.0 };
+    let mut out = vec![];
+    for (ti, t) in tracks.iter().enumerate() {
+        let mut idx: Vec<usize> = (0..t.clips.len()).filter(|&i| !t.clips[i].synced).collect();
         idx.sort_by(|&a, &b| natural_cmp(&t.clips[a].name, &t.clips[b].name));
-        if !t.synced {
-            let mut running = 0.0;
-            for i in idx {
-                t.clips[i].offset = cursor + running;
-                running += t.clips[i].duration;
-            }
-            if running > 0.0 {
-                cursor += running + 2.0;
-            }
-        } else {
-            let failed: Vec<usize> = idx.into_iter().filter(|&i| !t.clips[i].synced).collect();
-            for i in failed {
-                t.clips[i].offset = cursor;
-                cursor += t.clips[i].duration + 0.5;
-            }
+        for ci in idx {
+            out.push((ti, ci, cursor));
+            cursor += t.clips[ci].duration + 0.5;
         }
     }
+    out
+}
+
+/// Move unsynced clips onto their own "Unsynced" tracks (one video, one
+/// audio) at the end of the timeline. Tracks left empty are dropped.
+pub fn split_unsynced(tracks: &[Track]) -> Vec<Track> {
+    let layout = unsynced_layout(tracks);
+    if layout.is_empty() {
+        return tracks.to_vec();
+    }
+    let mut out: Vec<Track> = tracks.to_vec();
+    let mut vid = Track::new("Unsynced".into(), String::new(), true, String::new());
+    let mut aud = Track::new("Unsynced".into(), String::new(), false, String::new());
+    for &(ti, ci, offset) in &layout {
+        let mut c = tracks[ti].clips[ci].clone();
+        c.offset = offset;
+        if c.is_video { vid.clips.push(c) } else { aud.clips.push(c) }
+    }
+    for t in &mut out {
+        t.clips.retain(|c| c.synced);
+    }
+    out.retain(|t| !t.clips.is_empty());
+    for t in [vid, aud] {
+        if let Some(first) = t.clips.first() {
+            let mut t2 = t.clone();
+            t2.fingerprint = first.fingerprint.clone();
+            out.push(t2);
+        }
+    }
+    // Video tracks first, as the builders expect
+    out.sort_by_key(|t| !t.is_video);
+    out
 }
 
 fn by_offset(t: &Track) -> Vec<&Clip> {
@@ -608,10 +628,10 @@ pub fn prepare(tracks: &[Track], opts: ExportOptions) -> Vec<Track> {
             tr.clips.retain(|c| c.synced);
         }
         t.retain(|tr| !tr.clips.is_empty());
+        t
     } else {
-        move_unsynced_to_end(&mut t);
+        split_unsynced(&t)
     }
-    t
 }
 
 /// Export the tracks to `path`.

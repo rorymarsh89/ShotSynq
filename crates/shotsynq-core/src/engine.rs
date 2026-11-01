@@ -12,7 +12,7 @@
 use crate::model::{natural_cmp, Features};
 use realfft::RealFftPlanner;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::Arc;
 
@@ -30,6 +30,8 @@ pub const MIN_PEAK_RATIO: f64 = 1.25;
 pub const PEAK_EXCLUDE_S: f64 = 0.5;
 pub const SAME_TRACK_TOL_S: f64 = 0.5;
 pub const CONSISTENCY_TOL_S: f64 = 0.08;
+/// A match more than this far from where a clip ended up disagrees with it.
+pub const EDIT_TOL_S: f64 = 0.5;
 pub const SESSION_GAP_S: f64 = 0.0;
 pub const PSR_FOR_FULL_CONF: f64 = 25.0;
 
@@ -253,13 +255,21 @@ pub struct SyncInput {
     pub duration: f64,
     pub creation_time: Option<String>,
     pub features: Option<Arc<Features>>,
+    /// Files recorded together by one device (e.g. a recorder's main and
+    /// safety files) share this and are locked to the same start.
+    pub take: Option<String>,
 }
+
+/// Weight given to links between parts of one recording.
+const TAKE_LINK_PSR: f64 = 1000.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placement {
     pub offset: f64,
     pub synced: bool,
     pub confidence: f64,
+    /// Matches several unrelated points (an edited export, not raw footage).
+    pub edited: bool,
 }
 
 #[derive(Debug)]
@@ -574,36 +584,50 @@ pub fn sync(
         }
     }
 
+    // Parts of one multi-file recording start together by definition
+    for i in 0..n {
+        for j in i + 1..n {
+            let (a, b) = (&inputs[i], &inputs[j]);
+            if a.track != b.track
+                && a.take.is_some()
+                && a.take == b.take
+                && (a.duration - b.duration).abs() < 0.05
+            {
+                edges.push((i, j, 0.0, TAKE_LINK_PSR));
+                log::info!("same recording {} = {}", a.name, b.name);
+            }
+        }
+    }
+
     // 3. Groups, strongest first
     progress("Building timeline...".into());
-    let mut g = Groups::new(n);
-    let mut best_psr = vec![0.0f64; n];
-    let mut sorted = edges.clone();
-    sorted.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(Ordering::Equal));
-    for &(i, j, d, psr) in &sorted {
-        let (mut ri, mut rj) = (g.find(i), g.find(j));
-        if ri == rj {
-            continue;
+    let (mut g, mut best_psr, mut rough) = build_groups(n, &edges, inputs);
+
+    // Edited material (a finished cut of this footage): its audio comes from
+    // many points in the shoot, so it matches several clips that put it in
+    // different places. Raw footage agrees with itself. Such clips can't be
+    // placed; drop their links and group again without them.
+    let mut edited = vec![false; n];
+    for x in 0..n {
+        let (mut agree, mut disagree) = (HashSet::new(), HashSet::new());
+        for &(i, j, d, psr) in &edges {
+            if psr >= TAKE_LINK_PSR || (i != x && j != x) || g.find(i) != g.find(j) {
+                continue;
+            }
+            let other = if i == x { j } else { i };
+            if ((rough[j] - rough[i]) - d).abs() <= EDIT_TOL_S { agree.insert(other) } else { disagree.insert(other) };
         }
-        let mut shift = g.pos[i] + d - g.pos[j];
-        if same_track_conflict(&g, ri, rj, shift, inputs) {
-            log::info!("rejected {} -> {} (same-track overlap)", inputs[i].name, inputs[j].name);
-            continue;
+        if !disagree.is_empty() {
+            log::info!("{}: {} matches agree, {} disagree", inputs[x].name, agree.len(), disagree.len());
         }
-        if g.members[&ri].len() < g.members[&rj].len() {
-            std::mem::swap(&mut ri, &mut rj);
-            shift = -shift;
+        if disagree.len() >= 2 && disagree.len() >= agree.len() {
+            log::info!("EDITED {} (matches several points in the footage)", inputs[x].name);
+            edited[x] = true;
         }
-        g.merge(ri, rj, shift);
-        best_psr[i] = best_psr[i].max(psr);
-        best_psr[j] = best_psr[j].max(psr);
     }
-    let rough = g.pos.clone();
-    for &(i, j, d, psr) in &edges {
-        if g.find(i) == g.find(j) && ((rough[j] - rough[i]) - d).abs() <= CONSISTENCY_TOL_S {
-            best_psr[i] = best_psr[i].max(psr);
-            best_psr[j] = best_psr[j].max(psr);
-        }
+    if edited.iter().any(|&e| e) {
+        edges.retain(|&(i, j, _, _)| !edited[i] && !edited[j]);
+        (g, best_psr, rough) = build_groups(n, &edges, inputs);
     }
 
     // 4./5. Solve and lay out
@@ -613,6 +637,15 @@ pub fn sync(
     for r in roots {
         let mut members = g.members[&r].clone();
         if members.len() < 2 {
+            continue;
+        }
+        // A main + safety pair agreeing with each other isn't a sync: the group
+        // needs at least one real sound match.
+        let in_group: std::collections::HashSet<usize> = members.iter().copied().collect();
+        let same_recording = |i: usize, j: usize| inputs[i].take.is_some() && inputs[i].take == inputs[j].take;
+        if !edges.iter().any(|&(i, j, _, psr)| {
+            psr < TAKE_LINK_PSR && !same_recording(i, j) && in_group.contains(&i) && in_group.contains(&j)
+        }) {
             continue;
         }
         members.sort();
@@ -625,13 +658,14 @@ pub fn sync(
     }
     order_sessions(&mut sessions, inputs);
 
-    let mut out = vec![Placement { offset: 0.0, synced: false, confidence: 0.0 }; n];
+    let mut out: Vec<Placement> =
+        (0..n).map(|i| Placement { offset: 0.0, synced: false, confidence: 0.0, edited: edited[i] }).collect();
     let mut cursor = 0.0;
     for (s_idx, (members, pos)) in sessions.iter().enumerate() {
         let mut end: f64 = 0.0;
         for &m in members {
             let off = round4(cursor + pos[&m]);
-            out[m] = Placement { offset: off, synced: true, confidence: round4((best_psr[m] / PSR_FOR_FULL_CONF).min(1.0)) };
+            out[m] = Placement { offset: off, synced: true, confidence: round4((best_psr[m] / PSR_FOR_FULL_CONF).min(1.0)), edited: false };
             end = end.max(off + inputs[m].duration);
         }
         log::info!("Session {}: {} clips, {:.2}s -> {:.2}s", s_idx + 1, members.len(), cursor, end);
@@ -656,6 +690,42 @@ pub fn sync(
     let synced = out.iter().filter(|p| p.synced).count();
     progress(format!("Done: {synced}/{n} clips synced in {} session(s)", sessions.len()));
     Ok(out)
+}
+
+/// Union clips strongest link first (rejecting links that would overlap two
+/// clips of one track). Returns the groups, each clip's best supporting PSR
+/// and rough positions.
+fn build_groups(n: usize, edges: &[(usize, usize, f64, f64)], inputs: &[SyncInput]) -> (Groups, Vec<f64>, Vec<f64>) {
+    let mut g = Groups::new(n);
+    let mut best_psr = vec![0.0f64; n];
+    let mut sorted = edges.to_vec();
+    sorted.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(Ordering::Equal));
+    for &(i, j, d, psr) in &sorted {
+        let (mut ri, mut rj) = (g.find(i), g.find(j));
+        if ri == rj {
+            continue;
+        }
+        let mut shift = g.pos[i] + d - g.pos[j];
+        if same_track_conflict(&g, ri, rj, shift, inputs) {
+            log::info!("rejected {} -> {} (same-track overlap)", inputs[i].name, inputs[j].name);
+            continue;
+        }
+        if g.members[&ri].len() < g.members[&rj].len() {
+            std::mem::swap(&mut ri, &mut rj);
+            shift = -shift;
+        }
+        g.merge(ri, rj, shift);
+        best_psr[i] = best_psr[i].max(psr);
+        best_psr[j] = best_psr[j].max(psr);
+    }
+    let rough = g.pos.clone();
+    for &(i, j, d, psr) in edges {
+        if g.find(i) == g.find(j) && ((rough[j] - rough[i]) - d).abs() <= CONSISTENCY_TOL_S {
+            best_psr[i] = best_psr[i].max(psr);
+            best_psr[j] = best_psr[j].max(psr);
+        }
+    }
+    (g, best_psr, rough)
 }
 
 fn round4(v: f64) -> f64 {

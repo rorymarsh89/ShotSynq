@@ -1,27 +1,40 @@
 'use strict';
 
-// How long the "clips sliding into place" reveal after a sync takes.
-// Purely presentational: the sync itself is already finished. 0 = off.
-const SYNC_ANIM_MS  = 5000;
-const SYNC_MOVE_MS  = 260;   // each clip's snap into place
-const SYNC_EASE     = 'cubic-bezier(.3,1.45,.55,1)';  // fast, slight overshoot
+// The post-sync reveal: every clip floats from where it sat before the sync
+// to its synced position together, like an accordion opening. Purely
+// presentational (the sync is already done). Click or any key skips it.
+const SYNC_BASE_MS     = 1200;  // 0 = off
+const SYNC_PER_CLIP_MS = 25;    // a little longer for bigger projects…
+const SYNC_MAX_MS      = 2500;  // …up to this
+const SYNC_EASE        = 'cubic-bezier(.65,0,.35,1)';  // smooth in and out
 
-const EDITOR_NAMES = { resolve: 'Resolve', premiere: 'Premiere', fcpxml: 'Final Cut' };
 const DEFAULT_PREFS = { fmt: null, strip: false, drop: false };  // no editor until the user picks one
 
-// Export choices are remembered between sessions (best effort).
+// Export choices are remembered between launches, in a settings file the
+// app keeps on disk (browser storage as a fallback).
 const prefs = {
   _key: 'shotsynq.export',
-  get() {
-    try { return Object.assign({}, DEFAULT_PREFS, JSON.parse(localStorage.getItem(this._key) || '{}')); }
-    catch (e) { return Object.assign({}, DEFAULT_PREFS); }
+  _saved: null,
+  async load() {
+    try {
+      const T = window.__TAURI__;
+      if (T) this._saved = await T.core.invoke('get_prefs');
+    } catch (e) { /* fall back below */ }
+    if (!this._saved || !Object.keys(this._saved).length) {
+      try { this._saved = JSON.parse(localStorage.getItem(this._key) || '{}'); } catch (e) { this._saved = {}; }
+    }
   },
-  set(v) { try { localStorage.setItem(this._key, JSON.stringify(v)); } catch (e) { /* ignore */ } },
+  get() { return Object.assign({}, DEFAULT_PREFS, this._saved || {}); },
+  set(v) {
+    this._saved = Object.assign({}, v);
+    try { localStorage.setItem(this._key, JSON.stringify(v)); } catch (e) { /* ignore */ }
+    try { const T = window.__TAURI__; if (T) T.core.invoke('set_prefs', { prefs: v }); } catch (e) { /* ignore */ }
+  },
 };
 
 const app = {
   _state:        null,
-  _filter:       null,  // null | 'synced' | 'review' | 'unplaced'
+  _filter:       null,  // null | 'synced' | 'review' | 'unsynced'
   _selected:     null,  // { trackIndex, clipIndex }
   _pps:          100,   // pixels per second
   _userZoomed:   false, // true once user has manually zoomed
@@ -44,7 +57,7 @@ const app = {
   _anim: null,  // { timers: [], items: [], status }
 
   _animEnabled() {
-    return SYNC_ANIM_MS > 0 &&
+    return SYNC_BASE_MS > 0 &&
       !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   },
 
@@ -61,42 +74,25 @@ const app = {
       .map(el => ({ el, from: before.get(el.dataset.key), left: el.offsetLeft, width: el.offsetWidth, cls: el.className }))
       .filter(it => it.from);
     if (!items.length) return;
-    items.sort((a, b) => a.left - b.left);
-
-    // Start everything where it was before the sync, still in "waiting" style.
+    // Start everything where it was before the sync
     items.forEach(it => {
       it.el.style.transition = 'none';
       it.el.style.left  = it.from.left + 'px';
       it.el.style.width = it.from.width + 'px';
-      it.el.className = it.from.cls.replace(/\bselected\b/, '') + ' anim-waiting';
+      it.el.className = it.cls.replace(/\bselected\b/, '');
     });
     void document.body.offsetHeight;  // commit start positions
 
-    const n = items.length;
-    const step = n > 1 ? Math.max(0, SYNC_ANIM_MS - SYNC_MOVE_MS) / (n - 1) : 0;
+    const ms = Math.min(SYNC_MAX_MS, SYNC_BASE_MS + SYNC_PER_CLIP_MS * items.length);
     const anim = { timers: [], items, status: finalStatus };
     this._anim = anim;
-    let placed = 0;
-    this.setStatus(`Placing clips… 0/${n}`, 'loading');
-
-    items.forEach((it, i) => {
-      anim.timers.push(setTimeout(() => {
-        it.el.className = it.cls + ' lifting';
-        it.el.style.transition =
-          `left ${SYNC_MOVE_MS}ms ${SYNC_EASE}, width ${SYNC_MOVE_MS}ms ${SYNC_EASE}, ` +
-          'transform 90ms ease-out, box-shadow 90ms ease-out';
-        it.el.style.left  = it.left + 'px';
-        it.el.style.width = it.width + 'px';
-        anim.timers.push(setTimeout(() => {
-          it.el.classList.remove('lifting');
-          it.el.classList.add('snapped');   // landing flash
-          anim.timers.push(setTimeout(() => it.el.classList.remove('snapped'), 320));
-          placed++;
-          if (placed < n) this.setStatus(`Placing clips… ${placed}/${n}`, 'loading');
-          else this._finishAnim();
-        }, SYNC_MOVE_MS));
-      }, i * step));
+    this.setStatus('Placing clips… · click to skip', 'loading');
+    items.forEach(it => {
+      it.el.style.transition = `left ${ms}ms ${SYNC_EASE}, width ${ms}ms ${SYNC_EASE}`;
+      it.el.style.left  = it.left + 'px';
+      it.el.style.width = it.width + 'px';
     });
+    anim.timers.push(setTimeout(() => this._finishAnim(), ms));
   },
 
   _finishAnim() {
@@ -108,11 +104,9 @@ const app = {
       it.el.style.transition = '';
       it.el.style.left  = it.left + 'px';
       it.el.style.width = it.width + 'px';
-      it.el.className = it.cls + (it.el.classList.contains('snapped') ? ' snapped' : '');
+      it.el.className = it.cls;
     });
     this.setStatus(a.status.text, a.status.type);
-    // let the last landing flash play out
-    setTimeout(() => document.querySelectorAll('.clip.snapped').forEach(e => e.classList.remove('snapped')), 320);
   },
 
   setStatus(text, type) {
@@ -131,12 +125,9 @@ const app = {
     document.getElementById('btn-add').disabled    = !s.buttons.add;
     document.getElementById('btn-sync').disabled   = !s.buttons.sync;
     document.getElementById('btn-export').disabled      = !s.buttons.export;
-    document.getElementById('btn-export-menu').disabled = !s.buttons.export;
-    const fmt = prefs.get().fmt;
-    document.getElementById('btn-export').textContent = '\u2191 Export' + (fmt ? ' to ' + EDITOR_NAMES[fmt] : '');
-    if (!s.buttons.export) this._hideExportMenu();
+    if (!s.buttons.export) this._closeExport();
     // One bright button: the next step
-    const syncNext = s.buttons.sync && !s.timeline.synced;
+    const syncNext = s.buttons.sync && (!s.timeline.synced || s.timeline.new > 0);
     document.getElementById('btn-sync').classList.toggle('next', syncNext);
     document.getElementById('btn-export').classList.toggle('next', s.buttons.export && !syncNext);
     document.getElementById('btn-sync').innerHTML = s.timeline.synced ? '&#x21BB; Re-sync' : '&#x21BB; Synchronise';
@@ -163,7 +154,6 @@ const app = {
     this._renderFooter(s);
     this._renderSidebar(s.tracks);
     this._renderTimeline(s.tracks, s.timeline);
-    this._renderTray(s.tracks, s.timeline);
     this._applyLaneHighlight();
     this._drawRuler(s.timeline.total_duration);
     this._updateZoomBar();
@@ -202,7 +192,11 @@ const app = {
 
       const meta = document.createElement('div');
       meta.className = 'track-meta';
-      meta.textContent = track.meta;
+      (track.meta || []).forEach(line => {
+        const l = document.createElement('div');
+        l.textContent = line;
+        meta.appendChild(l);
+      });
 
       info.appendChild(nameInput);
       info.appendChild(meta);
@@ -218,6 +212,41 @@ const app = {
       label.appendChild(removeBtn);
       container.appendChild(label);
     });
+
+    // The Unsynced lane: clips that found no match, after the synced section
+    const s = this._state;
+    const unsynced = s ? this._unsyncedItems(tracks, s.timeline) : [];
+    if (unsynced.length) {
+      const div = document.createElement('div');
+      div.className = 'sidebar-divider';
+      container.appendChild(div);
+      const label = document.createElement('div');
+      label.className = 'track-label unsynced-label';
+      label.style.height = '86px';
+      const info = document.createElement('div');
+      info.className = 'track-info';
+      const name = document.createElement('div');
+      name.className = 'track-name-static';
+      name.textContent = 'Unsynced';
+      const meta = document.createElement('div');
+      meta.className = 'track-meta';
+      const secs = unsynced.reduce((a, { clip }) => a + clip.duration, 0);
+      [`${unsynced.length} clip${unsynced.length === 1 ? '' : 's'}`, this._fmtLong(secs) + ' duration'].forEach(t => {
+        const l = document.createElement('div'); l.textContent = t; meta.appendChild(l);
+      });
+      info.append(name, meta);
+      const dot = document.createElement('div');
+      dot.className = 'track-dot unsynced-dot';
+      label.append(dot, info);
+      container.appendChild(label);
+    }
+  },
+
+  // Clips that sit on the Unsynced lane (after a sync), with their source track
+  _unsyncedItems(tracks, timeline) {
+    if (!timeline.synced) return [];
+    return tracks.flatMap(t => t.clips.filter(c => c.unsynced_offset != null).map(c => ({ clip: c, track: t })))
+      .sort((a, b) => a.clip.unsynced_offset - b.clip.unsynced_offset);
   },
 
   _renderTimeline(tracks, timeline) {
@@ -235,17 +264,14 @@ const app = {
     let innerW  = Math.max(timeline.total_duration * pps + 20, vpW);
     inner.style.width = innerW + 'px';
 
-    tracks.forEach(track => {
+    // Each lane: a row element plus { clip, track, leftPx, widthPx } items
+    const lanes = tracks.map(track => {
       const row = document.createElement('div');
       row.className = 'track-row ' + (track.is_video ? 'cam-row' : 'aud-row');
       row.dataset.trackIndex = track.index;
       row.style.setProperty('--lane', track.color);
-      inner.appendChild(row);
-
-      // Positions first, so each clip can be clipped to where the next one
-      // starts. Short clips at low zoom otherwise spill over their neighbours.
       let runningPx = 0;
-      const onTimeline = timeline.synced ? track.clips.filter(c => c.status !== 'failed') : track.clips;
+      const onTimeline = timeline.synced ? track.clips.filter(c => c.unsynced_offset == null) : track.clips;
       const items = onTimeline.map(clip => {
         let leftPx, widthPx;
         if (timeline.synced) {
@@ -256,78 +282,90 @@ const app = {
           leftPx  = runningPx;
           runningPx += widthPx + GAP;
         }
-        return { clip, leftPx, widthPx };
+        return { clip, track, leftPx, widthPx };
       });
+      return { row, items };
+    });
+    const unsynced = this._unsyncedItems(tracks, timeline);
+    if (unsynced.length) {
+      const row = document.createElement('div');
+      row.className = 'track-row unsynced-row';
+      lanes.push({ row, items: unsynced.map(({ clip, track }) => ({
+        clip, track,
+        leftPx:  Math.round(clip.unsynced_offset * pps),
+        widthPx: Math.max(Math.round(clip.duration * pps) - GAP, 2),
+      })) });
+    }
+
+    lanes.forEach(({ row, items }) => {
+      inner.appendChild(row);
+      // Each clip is clipped to where the next one starts, so short clips at
+      // low zoom don't spill over their neighbours.
       const byLeft = [...items].sort((a, b) => a.leftPx - b.leftPx);
       for (let k = 0; k < byLeft.length - 1; k++) {
         const room = byLeft[k + 1].leftPx - byLeft[k].leftPx - 1;
         if (room > 0) byLeft[k].widthPx = Math.max(2, Math.min(byLeft[k].widthPx, room));
       }
-
-      items.forEach(({ clip, leftPx, widthPx }) => {
-        const right = leftPx + widthPx + 20;
+      items.forEach(it => {
+        const right = it.leftPx + it.widthPx + 20;
         if (right > innerW) { innerW = right; inner.style.width = innerW + 'px'; }
-
-        const el = document.createElement('div');
-        el.className = 'clip status-' + clip.status +
-          (widthPx < 44 ? ' narrow' : widthPx < 96 ? ' medium' : '');
-        el.style.left  = leftPx + 'px';
-        el.style.width = widthPx + 'px';
-        el.dataset.trackIndex = clip.track_index;
-        el.dataset.key = clip.track_index + '|' + clip.name;
-        el.dataset.clipIndex  = clip.clip_index;
-        el.title = this._tooltip(clip);
-
-        // Colour always says which device; status is shown by outline/badge
-        if (clip.status !== 'loading') {
-          el.style.background  = this._rgba(track.color, 0.18);
-          el.style.borderColor = this._rgba(track.color, 0.40);
-          el.style.color       = '#fff';
-        }
-        if (this._filter && !this._matchesFilter(clip)) el.classList.add('dimmed');
-
-        // Waveform canvas
-        const wc = document.createElement('canvas');
-        wc.className = 'clip-wave';
-        el.appendChild(wc);
-
-        // Label
-        const lbl = document.createElement('div');
-        lbl.className = 'clip-label';
-
-        const nameEl   = document.createElement('div');
-        nameEl.className = 'clip-name';
-        nameEl.textContent = clip.name;
-
-        const statusEl = document.createElement('div');
-        statusEl.className = 'clip-status';
-        statusEl.textContent = this._statusLabel(clip);
-
-        lbl.appendChild(nameEl);
-        lbl.appendChild(statusEl);
-        el.appendChild(lbl);
-
-        el.addEventListener('click', () => this._selectClip(el));
-        el.addEventListener('contextmenu', e => {
-          e.preventDefault();
-          this._selectClip(el);
-          this._showMenu(e.clientX, e.clientY, clip);
-        });
-        row.appendChild(el);
-
-        // Draw waveform once layout is settled
-        if (clip.waveform && clip.waveform.length > 0) {
-          requestAnimationFrame(() => this._drawWave(wc, clip.waveform, track.color));
-        }
+        row.appendChild(this._clipEl(it));
       });
     });
 
     // Restore selection highlight if still present
     if (this._selected) {
       const { trackIndex: ti, clipIndex: ci } = this._selected;
-      const el = inner.querySelector(`[data-track-index="${ti}"][data-clip-index="${ci}"]`);
+      const el = inner.querySelector(`.clip[data-track-index="${ti}"][data-clip-index="${ci}"]`);
       if (el) el.classList.add('selected');
     }
+  },
+
+  _clipEl({ clip, track, leftPx, widthPx }) {
+    const el = document.createElement('div');
+    el.className = 'clip status-' + clip.status +
+      (widthPx < 44 ? ' narrow' : widthPx < 96 ? ' medium' : '');
+    el.style.left  = leftPx + 'px';
+    el.style.width = widthPx + 'px';
+    el.dataset.trackIndex = clip.track_index;
+    el.dataset.key = clip.track_index + '|' + clip.name;
+    el.dataset.clipIndex  = clip.clip_index;
+    el.title = this._tooltip(clip) + (clip.unsynced_offset != null ? '\n' + track.display_name : '');
+
+    // Colour always says which device; status is shown by outline/badge
+    if (clip.status !== 'loading') {
+      el.style.background  = this._rgba(track.color, 0.18);
+      el.style.borderColor = this._rgba(track.color, 0.40);
+      el.style.color       = '#fff';
+    }
+    if (this._filter && !this._matchesFilter(clip)) el.classList.add('dimmed');
+
+    const wc = document.createElement('canvas');
+    wc.className = 'clip-wave';
+    el.appendChild(wc);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'clip-label';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'clip-name';
+    nameEl.textContent = clip.name;
+    const statusEl = document.createElement('div');
+    statusEl.className = 'clip-status';
+    statusEl.textContent = this._statusLabel(clip);
+    lbl.appendChild(nameEl);
+    lbl.appendChild(statusEl);
+    el.appendChild(lbl);
+
+    el.addEventListener('click', () => this._selectClip(el));
+    el.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      this._selectClip(el);
+      this._showMenu(e.clientX, e.clientY, clip);
+    });
+    if (clip.waveform && clip.waveform.length > 0) {
+      requestAnimationFrame(() => this._drawWave(wc, clip.waveform, track.color));
+    }
+    return el;
   },
 
   _drawWave(canvas, peaks, color) {
@@ -338,8 +376,8 @@ const app = {
     const dpr = window.devicePixelRatio || 1;
     canvas.width  = W * dpr;
     canvas.height = H * dpr;
-    canvas.style.width  = W + 'px';
-    canvas.style.height = H + 'px';
+    canvas.style.width  = '100%';  // follows the clip if it resizes (sync reveal)
+    canvas.style.height = '100%';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.strokeStyle = color;
@@ -349,7 +387,7 @@ const app = {
     ctx.beginPath();
     for (let i = 0; i < peaks.length; i++) {
       const x = i * step;
-      const a = peaks[i] * mid * 0.85;
+      const a = Math.max(peaks[i] * mid * 0.85, 0.75);  // silence still shows as a flat line
       ctx.moveTo(x, mid - a);
       ctx.lineTo(x, mid + a);
     }
@@ -374,6 +412,8 @@ const app = {
     ctx.scale(dpr, dpr);
 
     const pps = this._pps;
+    // The ruler sits outside the scrolling area: draw the visible stretch
+    const sx  = document.getElementById('tracks-scroll').scrollLeft;
     const ivs = [
       { major: 5,    sub: 5, fmt: s => s + 's'                    },
       { major: 10,   sub: 5, fmt: s => s + 's'                    },
@@ -390,9 +430,9 @@ const app = {
 
     const subIv  = iv.major / iv.sub;
     const nTicks = Math.ceil(totalSecs / subIv) + 1;
-    for (let i = 0; i < nTicks; i++) {
+    for (let i = Math.max(0, Math.floor(sx / pps / subIv)); i < nTicks; i++) {
       const t = i * subIv;
-      const x = t * pps;
+      const x = t * pps - sx;
       if (x > W) break;
       const maj = Math.abs(t % iv.major) < 0.01;
       ctx.strokeStyle = maj ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.12)';
@@ -408,9 +448,10 @@ const app = {
     ctx.textBaseline = 'top';
     const nLabels    = Math.ceil(totalSecs / iv.major);
     let lastX        = -999;
-    for (let i = 0; i <= nLabels; i++) {
+    for (let i = Math.max(0, Math.floor(sx / pps / iv.major) - 1); i <= nLabels; i++) {
       const t  = i * iv.major;
-      const x  = t * pps;
+      const x  = t * pps - sx;
+      if (x < -60) continue;
       if (x > W + 2) break;
       const lbl = iv.fmt(t);
       const tw  = ctx.measureText(lbl).width;
@@ -470,7 +511,10 @@ const app = {
     const gripR  = document.getElementById('zoombar-grip-r');
     const scroll = document.getElementById('tracks-scroll');
 
-    scroll.addEventListener('scroll', () => this._updateZoomBar());
+    scroll.addEventListener('scroll', () => {
+      this._updateZoomBar();
+      if (this._state) this._drawRuler(this._state.timeline.total_duration);
+    });
 
     let drag = null;
 
@@ -537,9 +581,11 @@ const app = {
     const scroll = document.getElementById('tracks-scroll');
     scroll.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-        this._zoom(factor, e.offsetX);
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        // Zoom around the point under the cursor
+        const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const factor = d < 0 ? 1.15 : 1 / 1.15;
+        this._zoom(factor, e.clientX - scroll.getBoundingClientRect().left);
       } else {
         scroll.scrollLeft += (Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX) * 1.5;
         this._updateZoomBar();
@@ -550,12 +596,12 @@ const app = {
   // ── Clip selection ────────────────────────────────────────────────────────
 
   _selectClip(el) {
-    document.querySelectorAll('.clip.selected, .tray-clip.selected').forEach(c => c.classList.remove('selected'));
+    document.querySelectorAll('.clip.selected').forEach(c => c.classList.remove('selected'));
     el.classList.add('selected');
     this._selected = {
       trackIndex: parseInt(el.dataset.trackIndex),
       clipIndex:  parseInt(el.dataset.clipIndex),
-      tray:       el.classList.contains('tray-clip'),
+      tray:       !!el.closest('.unsynced-row'),
     };
     this._applyLaneHighlight();
   },
@@ -565,7 +611,7 @@ const app = {
     const anyFailed = this._state && this._state.tracks.some(t => t.clips.some(c => c.status === 'failed'));
     menu.querySelector('[data-action="remove-unsynced"]').disabled = !anyFailed;
     // Native hover tooltips would sit on top of the menu; park them meanwhile
-    document.querySelectorAll('.clip[title], .tray-clip[title]').forEach(e => {
+    document.querySelectorAll('.clip[title]').forEach(e => {
       e.dataset.tip = e.title; e.removeAttribute('title');
     });
     menu.style.display = 'flex';
@@ -585,7 +631,8 @@ const app = {
   // ── Footer: counters as filters, footage stats ───────────────────────────
 
   _matchesFilter(clip) {
-    return { synced: 'synced', review: 'synced_low', unplaced: 'failed' }[this._filter] === clip.status;
+    if (this._filter === 'unsynced') return clip.status === 'failed' || clip.status === 'new';
+    return { synced: 'synced', review: 'synced_low' }[this._filter] === clip.status;
   },
 
   _setFilter(f) {
@@ -607,7 +654,7 @@ const app = {
     const counts = [
       ['synced',   'ok',       n('synced'),     'synced'],
       ['review',   'review',   n('synced_low'), 'to review'],
-      ['unplaced', 'unplaced', n('failed'),     'unplaced'],
+      ['unsynced', 'unplaced', n('failed'),     'unsynced'],
     ];
     chips.innerHTML = '';
     counts.forEach(([key, cls, count, label]) => {
@@ -632,47 +679,7 @@ const app = {
     return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${Math.max(m, secs > 0 ? 1 : 0)}m`;
   },
 
-  // ── Unplaced tray ─────────────────────────────────────────────────────────
-
-  _renderTray(tracks, timeline) {
-    const tray = document.getElementById('tray');
-    const list = document.getElementById('tray-clips');
-    const failed = timeline.synced
-      ? tracks.flatMap(t => t.clips.filter(c => c.status === 'failed').map(c => ({ c, t })))
-      : [];
-    tray.style.display = failed.length ? 'flex' : 'none';
-    tray.classList.toggle('dimmed', !!this._filter && this._filter !== 'unplaced');
-    document.getElementById('tray-count').textContent = failed.length;
-    list.innerHTML = '';
-    failed.forEach(({ c, t }) => {
-      const el = document.createElement('div');
-      el.className = 'tray-clip';
-      el.dataset.trackIndex = c.track_index;
-      el.dataset.clipIndex  = c.clip_index;
-      el.title = this._tooltip(c) + '\n' + t.display_name;
-      const dot = document.createElement('span');
-      dot.className = 'tray-dot';
-      dot.style.background = t.color;
-      const name = document.createElement('span');
-      name.textContent = c.name;
-      const dur = document.createElement('span');
-      dur.className = 'tray-dur';
-      dur.textContent = this._fmt(c.duration);
-      el.append(dot, name, dur);
-      el.addEventListener('click', () => this._selectClip(el));
-      el.addEventListener('contextmenu', e => {
-        e.preventDefault();
-        this._selectClip(el);
-        this._showMenu(e.clientX, e.clientY, c);
-      });
-      if (this._selected && this._selected.trackIndex === c.track_index && this._selected.clipIndex === c.clip_index) {
-        el.classList.add('selected');
-      }
-      list.appendChild(el);
-    });
-  },
-
-  // An unplaced clip has no timeline position, so show which lane it belongs to.
+  // An unsynced clip sits on the Unsynced lane, so show which lane it came from.
   _applyLaneHighlight() {
     document.querySelectorAll('.lane-hl').forEach(e => e.classList.remove('lane-hl'));
     const sel = this._selected;
@@ -719,38 +726,32 @@ const app = {
 
   removeTrack(index) { const a = this._api(); if (a) a.remove_track(index); },
 
-  // ── Export dropdown ───────────────────────────────────────────────────────
+  // ── Export dialog ─────────────────────────────────────────────────────────
 
-  _exportAfterPick: false,  // menu was opened by the main button with no editor chosen
-
-  _showExportMenu(exportAfterPick) {
+  _openExport() {
+    if (document.getElementById('btn-export').disabled) return;
     const p = prefs.get();
-    const menu = document.getElementById('export-menu');
-    menu.querySelectorAll('.dd-item').forEach(b => b.classList.toggle('selected', b.dataset.fmt === p.fmt));
+    document.querySelectorAll('.editor-card').forEach(b => b.classList.toggle('selected', b.dataset.fmt === p.fmt));
     document.getElementById('opt-strip-audio').checked   = p.strip;
     document.getElementById('opt-drop-unsynced').checked = p.drop;
-    this._exportAfterPick = !!exportAfterPick;
-    menu.style.display = 'flex';
+    document.getElementById('export-go').disabled = !p.fmt;
+    document.getElementById('export-dialog').style.display = 'flex';
+    const sel = document.querySelector('.editor-card.selected') || document.querySelector('.editor-card');
+    sel.focus();
   },
 
-  _hideExportMenu() {
-    document.getElementById('export-menu').style.display = 'none';
-    this._exportAfterPick = false;
+  _closeExport() {
+    document.getElementById('export-dialog').style.display = 'none';
   },
 
-  _toggleExportMenu() {
-    const open = document.getElementById('export-menu').style.display !== 'none';
-    if (open) this._hideExportMenu(); else this._showExportMenu(false);
+  _exportOpen() {
+    return document.getElementById('export-dialog').style.display !== 'none';
   },
 
   _pickEditor(fmt) {
-    const p = prefs.get();
-    p.fmt = fmt;
-    prefs.set(p);
-    const go = this._exportAfterPick;
-    this._hideExportMenu();
-    this._render();
-    if (go) this.doExport();
+    this._setExportOption('fmt', fmt);
+    document.querySelectorAll('.editor-card').forEach(b => b.classList.toggle('selected', b.dataset.fmt === fmt));
+    document.getElementById('export-go').disabled = false;
   },
 
   _setExportOption(key, value) {
@@ -759,12 +760,13 @@ const app = {
     prefs.set(p);
   },
 
-  // Exports with the remembered editor and options; asks for an editor first time
+  // Exports with the editor and options chosen in the dialog
   async doExport() {
     const a = this._api();
     if (!a) return;
     const p = prefs.get();
-    if (!p.fmt) { this._showExportMenu(true); return; }
+    if (!p.fmt) return;
+    this._closeExport();
     const result = await a.export(p.fmt, { stripCameraAudio: p.strip, dropUnsynced: p.drop });
     if (!result) return;
     if (result.success) {
@@ -795,7 +797,8 @@ const app = {
       case 'ready':      return this._fmt(clip.duration);
       case 'synced':     return 'synced · ' + this._fmt(clip.duration);
       case 'synced_low': return 'low confidence · ' + this._fmt(clip.duration);
-      case 'failed':     return 'could not sync';
+      case 'failed':     return clip.note || 'could not sync';
+      case 'new':        return clip.note || 'new · not synced yet';
       default:           return '';
     }
   },
@@ -816,6 +819,7 @@ const app = {
     if (clip.creation_time) lines.push('Recorded: ' + clip.creation_time.slice(0, 19));
     if (clip.timecode && clip.timecode !== '00:00:00:00') lines.push('Timecode: ' + clip.timecode);
     if (clip.confidence > 0) lines.push('Confidence: ' + clip.confidence.toFixed(4));
+    if (clip.note) lines.push('Problem: ' + clip.note + ' — nothing to match against');
     return lines.join('\n');
   },
 };
@@ -832,16 +836,22 @@ document.addEventListener('keydown', e => {
 document.getElementById('btn-add').addEventListener('click',    () => app.addFiles());
 document.getElementById('btn-sync').addEventListener('click',   () => app.runSync());
 document.getElementById('btn-cancel').addEventListener('click', () => app.cancelSync());
-document.getElementById('btn-export').addEventListener('click',      () => app.doExport());
-document.getElementById('btn-export-menu').addEventListener('click', () => app._toggleExportMenu());
-document.querySelectorAll('#export-menu .dd-item').forEach(b =>
+document.getElementById('btn-export').addEventListener('click', () => app._openExport());
+document.querySelectorAll('.editor-card').forEach(b =>
   b.addEventListener('click', () => app._pickEditor(b.dataset.fmt)));
 document.getElementById('opt-strip-audio').addEventListener('change',   e => app._setExportOption('strip', e.target.checked));
 document.getElementById('opt-drop-unsynced').addEventListener('change', e => app._setExportOption('drop', e.target.checked));
-document.addEventListener('mousedown', e => {
-  if (!e.target.closest('#export-split')) app._hideExportMenu();
+document.getElementById('export-cancel').addEventListener('click', () => app._closeExport());
+document.getElementById('export-go').addEventListener('click', () => app.doExport());
+// Click outside the dialog closes it
+document.getElementById('export-dialog').addEventListener('mousedown', e => {
+  if (e.target.id === 'export-dialog') app._closeExport();
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') app._hideExportMenu(); });
+document.addEventListener('keydown', e => {
+  if (!app._exportOpen()) return;
+  if (e.key === 'Escape') app._closeExport();
+  if (e.key === 'Enter' && !document.getElementById('export-go').disabled) { e.preventDefault(); app.doExport(); }
+});
 document.getElementById('btn-clear').addEventListener('click',  () => app.clearAll());
 document.getElementById('drop-target').addEventListener('click', () => app.addFiles());
 document.getElementById('btn-licences').addEventListener('click', () => {
@@ -878,15 +888,21 @@ document.addEventListener('contextmenu', e => {
 (async () => {
   const T = window.__TAURI__;
   if (!T) return;
+  const prefsReady = prefs.load();  // don't miss state events while this loads
   await T.event.listen('state',  e => app.update(e.payload));
   await T.event.listen('status', e => app.setStatus(e.payload.text, e.payload.type));
   await T.event.listen('tauri://drag-enter', () => document.body.classList.add('drag-active'));
   await T.event.listen('tauri://drag-leave', () => document.body.classList.remove('drag-active'));
+  const focusWindow = () => { if (!document.hasFocus()) T.core.invoke('focus_window').catch(() => {}); };
+  // WebView2 ignores the wheel until the window has focus (see focus_window).
+  // Only on drop: focusing on hover would cover the Add media / Export dialogs.
   await T.event.listen('tauri://drag-drop',  e => {
     document.body.classList.remove('drag-active');
+    focusWindow();
     const paths = (e.payload && e.payload.paths) || [];
     if (paths.length > 0) { const a = app._api(); if (a) a.add_files_from_paths(paths); }
   });
+  await prefsReady;
   app.update(await T.core.invoke('get_state'));
   try {
     document.getElementById('about-version').textContent = 'ShotSynq ' + await T.core.invoke('app_version');

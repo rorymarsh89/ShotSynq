@@ -1,6 +1,6 @@
 [package]
 name = "shotsynq"
-version = "0.9.0"
+version = "0.10.0"
 description = "ShotSynq: sync multicam video and audio into an editable timeline"
 authors = ["Rory Marshall"]
 license = "MIT"

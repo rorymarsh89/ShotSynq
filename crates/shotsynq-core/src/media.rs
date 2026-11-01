@@ -185,6 +185,21 @@ fn device_name(info: &Value, path: &str) -> Option<String> {
     None
 }
 
+/// When recording started: container creation time, or for MXF the
+/// modification (end) time minus the duration.
+fn recording_start(info: &Value) -> Option<f64> {
+    let ft = &info["format"]["tags"];
+    if let Some(t) = tag(ft, "com.apple.quicktime.creationdate").and_then(engine::parse_creation_time) {
+        return Some(t);
+    }
+    if let Some(t) = creation_time(info).as_deref().and_then(engine::parse_creation_time) {
+        return Some(t);
+    }
+    // MXF: Canon writes the clip start here; other makers may not. Lane
+    // logic treats every timestamp as "start or end", so either works.
+    tag(ft, "modification_date").and_then(engine::parse_creation_time)
+}
+
 pub fn load_metadata(path: &str) -> Result<Clip, String> {
     if !Path::new(path).exists() {
         return Err(format!("File not found: {path}"));
@@ -206,6 +221,12 @@ pub fn load_metadata(path: &str) -> Result<Clip, String> {
         fingerprint: fingerprint(&info),
         device: device_name(&info, path),
         sample_rate: kind(&info, "audio").next().and_then(|s| s["sample_rate"].as_str()).and_then(|s| s.parse().ok()).unwrap_or(0),
+        rec_start: recording_start(&info),
+        audio_note: None,
+        sync_tried: false,
+        batch: 0,
+        sync_note: None,
+        take_key: if v.is_none() { crate::model::take_key(&Path::new(path).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()) } else { None },
         audio_loaded: false,
         load_error: None,
         waveform: vec![],
@@ -303,9 +324,16 @@ pub fn waveform_peaks(audio: &[f32], bars: usize) -> Vec<f32> {
             audio[s..e].iter().fold(0.0f32, |m, v| m.max(v.abs()))
         })
         .collect();
-    let mx = peaks.iter().cloned().fold(0.0f32, f32::max);
-    let mx = if mx > 0.0 { mx } else { 1.0 };
-    peaks.iter().map(|p| p / mx).collect()
+    // Scale to the clip's loud level ignoring rare spikes (99.5th percentile),
+    // so a clap or bump doesn't flatten everything else, then lift quiet
+    // passages slightly. Display only; sync is unaffected.
+    let mut sorted: Vec<f32> = peaks.iter().copied().filter(|&p| p > 0.0).collect();
+    if sorted.is_empty() {
+        return vec![0.0; bars];
+    }
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let reference = sorted[((sorted.len() - 1) as f32 * 0.995) as usize].max(1e-6);
+    peaks.iter().map(|p| (p / reference).min(1.0).powf(0.85)).collect()
 }
 
 /// Decode audio, build the waveform and sync features. Audio isn't kept.
@@ -313,11 +341,22 @@ pub fn load_audio(clip: &mut Clip) -> Result<(), String> {
     let info = probe(&clip.path)?;
     let n_streams = kind(&info, "audio").count();
     if n_streams == 0 {
-        clip.audio_loaded = true; // nothing to load; will show as unsynced
+        clip.audio_note = Some("no audio track".into());
+        clip.waveform = vec![0.0; WAVEFORM_BARS];
+        clip.audio_loaded = true;
         return Ok(());
     }
     let idx = best_stream(&clip.path, n_streams, SYNC_SAMPLE_RATE);
     let audio = decode_audio(&clip.path, idx, SYNC_SAMPLE_RATE, None)?;
+    // Below -60 dBFS throughout = nothing to match (muted or disconnected mic)
+    let peak = audio.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    if peak < 0.001 {
+        clip.audio_note = Some("silent audio".into());
+        clip.waveform = vec![0.0; WAVEFORM_BARS];
+        clip.features = None;
+        clip.audio_loaded = true;
+        return Ok(());
+    }
     clip.waveform = waveform_peaks(&audio, WAVEFORM_BARS);
     clip.features = engine::compute_features(&audio, SYNC_SAMPLE_RATE).map(Arc::new);
     clip.audio_loaded = true;

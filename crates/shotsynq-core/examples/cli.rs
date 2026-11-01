@@ -28,7 +28,7 @@ fn main() {
     for (ti, t) in tracks.iter().enumerate() {
         for (ci, c) in t.clips.iter().enumerate() {
             inputs.push(engine::SyncInput { name: c.name.clone(), track: ti, duration: c.duration,
-                creation_time: c.creation_time.clone(), features: c.features.clone() });
+                creation_time: c.creation_time.clone(), features: c.features.clone(), take: c.take_key.clone() });
             map.push((ti, ci));
         }
     }
@@ -40,6 +40,7 @@ fn main() {
         let c = &mut tracks[ti].clips[ci];
         c.offset = p.offset; c.synced = p.synced; c.confidence = p.confidence;
         out.insert(c.name.clone(), serde_json::json!({"offset": p.offset, "synced": p.synced, "confidence": p.confidence}));
+        if p.edited { out.get_mut(&c.name).unwrap()["edited"] = true.into(); }
     }
     for t in &mut tracks { t.synced = t.clips.iter().any(|c| c.synced); }
     println!("{}", serde_json::to_string_pretty(&out).unwrap());

@@ -9,7 +9,7 @@ use shotsynq_core::{engine, export, media, session::Session};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-const MEDIA_EXTS: [&str; 11] = ["mp4", "mov", "mxf", "avi", "mkv", "mts", "mp3", "wav", "aac", "m4a", "bwf"];
+const MEDIA_EXTS: [&str; 12] = ["mp4", "mov", "mxf", "avi", "mkv", "mts", "mp3", "wav", "aac", "m4a", "bwf", "flac"];
 
 struct Job {
     generation: u64,
@@ -143,7 +143,7 @@ fn start_loaders(app: AppHandle, rx: Receiver<Job>) {
             if !current() {
                 continue;
             }
-            st.session.lock().unwrap().set_audio(&job.path, loaded.waveform, loaded.features, err.clone());
+            st.session.lock().unwrap().set_audio(&job.path, loaded.waveform, loaded.features, loaded.audio_note, err.clone());
             push_state(&app);
             if let Some(e) = err {
                 set_status(&app, &format!("Couldn't read audio from {}: {e}", loaded.name), "error");
@@ -310,6 +310,39 @@ fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
+/// Bring the window to the front. WebView2 ignores the mouse wheel until the
+/// window has focus, which it doesn't after launching from a terminal or a
+/// drag and drop from Explorer.
+#[tauri::command]
+fn focus_window(window: tauri::WebviewWindow) {
+    let _ = window.set_focus();
+}
+
+fn prefs_path(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("prefs.json"))
+}
+
+/// Saved UI choices (export editor and options), kept between launches.
+#[tauri::command]
+fn get_prefs(app: AppHandle) -> Value {
+    prefs_path(&app)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+#[tauri::command]
+fn set_prefs(app: AppHandle, prefs: Value) {
+    if let Some(p) = prefs_path(&app) {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Err(e) = std::fs::write(&p, prefs.to_string()) {
+            log::warn!("could not save prefs to {}: {e}", p.display());
+        }
+    }
+}
+
 /// Open the bundled licence notices in the default text viewer.
 #[tauri::command]
 fn open_notices(app: AppHandle) {
@@ -392,6 +425,18 @@ fn test_hook(app: AppHandle) {
             std::thread::sleep(std::time::Duration::from_millis(300));
             if app.state::<AppState>().session.lock().unwrap().can_sync() {
                 run_sync(app.clone(), app.state::<AppState>());
+                break;
+            }
+        }
+        // SYNCUP_TEST_LATER: files added once that sync has finished
+        let Ok(later) = std::env::var("SYNCUP_TEST_LATER") else { return };
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let s = app.state::<AppState>();
+            let done = { let g = s.session.lock().unwrap(); g.synced && !g.syncing };
+            if done {
+                std::thread::sleep(std::time::Duration::from_millis(8000));
+                enqueue(&app, later.split(';').map(String::from).collect());
                 return;
             }
         }
@@ -411,6 +456,9 @@ fn main() {
         })
         .setup(move |app| {
             start_loaders(app.handle().clone(), rx);
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_focus();
+            }
             #[cfg(debug_assertions)]
             test_hook(app.handle().clone());
             if let Err(e) = media::check_tools() {
@@ -436,6 +484,9 @@ fn main() {
             open_clip,
             app_version,
             open_notices,
+            get_prefs,
+            set_prefs,
+            focus_window,
             export_timeline
         ])
         .run(tauri::generate_context!())

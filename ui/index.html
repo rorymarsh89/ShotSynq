@@ -20,19 +20,7 @@
         <button class="btn" id="btn-add">+ Add media</button>
         <button class="btn btn-sync" id="btn-sync" disabled>&#x21BB; Synchronise</button>
         <button class="btn btn-cancel"      id="btn-cancel" style="display:none">&#x2715; Cancel</button>
-        <div class="split" id="export-split">
-          <button class="btn btn-export" id="btn-export" disabled>&#x2191; Export</button>
-          <button class="btn btn-export split-caret" id="btn-export-menu" disabled title="Editor and export options">&#x25BE;</button>
-          <div class="dropdown" id="export-menu" style="display:none">
-            <div class="dd-label">Export to</div>
-            <button type="button" class="dd-item" data-fmt="premiere"><span class="dd-check"></span>Adobe Premiere Pro</button>
-            <button type="button" class="dd-item" data-fmt="resolve"><span class="dd-check"></span>DaVinci Resolve</button>
-            <button type="button" class="dd-item" data-fmt="fcpxml"><span class="dd-check"></span>Final Cut Pro</button>
-            <div class="ctx-sep"></div>
-            <label class="dd-toggle" title="Camera clips keep their audio where no recorder was running"><input type="checkbox" id="opt-strip-audio"> Use recorder audio instead of camera audio</label>
-            <label class="dd-toggle"><input type="checkbox" id="opt-drop-unsynced"> Leave out unsynchronised clips</label>
-          </div>
-        </div>
+        <button class="btn btn-export" id="btn-export" disabled>&#x2191; Export</button>
         <button class="btn btn-clear"       id="btn-clear" style="display:none">Clear all</button>
       </div>
     </div>
@@ -65,13 +53,6 @@
             </div>
           </div>
         </div>
-        <div id="tray" class="tray" style="display:none">
-          <div class="tray-head">
-            <span class="tray-title">Unplaced &middot; <span id="tray-count">0</span></span>
-            <span class="tray-sub">No matching sound found</span>
-          </div>
-          <div id="tray-clips" class="tray-clips"></div>
-        </div>
         <div class="zoombar" id="zoombar">
           <div class="zoombar-handle" id="zoombar-handle">
             <div class="zoombar-grip zoombar-grip-l" id="zoombar-grip-l"></div>
@@ -87,9 +68,9 @@
       <div id="status-dot" class="status-dot" style="display:none"></div>
       <div id="status-chips" class="status-chips" style="display:none"></div>
       <span id="status-text" class="status-text">Add media files to get started</span>
-      <span class="zoom-hint" id="zoom-hint">Ctrl+scroll to zoom &nbsp;&middot;&nbsp; scroll to pan &nbsp;&middot;&nbsp; drag handle ends to resize view</span>
+      <span class="zoom-hint" id="zoom-hint">Alt+scroll to zoom &nbsp;&middot;&nbsp; scroll to pan &nbsp;&middot;&nbsp; drag handle ends to resize view</span>
       <span class="footer-stats" id="footer-stats" style="display:none"
-            title="Ctrl+scroll to zoom · scroll to pan · drag handle ends to resize view"></span>
+            title="Alt+scroll to zoom · scroll to pan · drag handle ends to resize view"></span>
     </div>
 
   </div>
@@ -100,9 +81,32 @@
     <button type="button" data-action="reveal-clip">Show in File Explorer</button>
     <div class="ctx-sep"></div>
     <button type="button" data-action="remove-clip">Remove clip</button>
-    <button type="button" data-action="remove-unsynced">Remove all unsynchronised clips</button>
+    <button type="button" data-action="remove-unsynced">Remove all unsynced clips</button>
+  </div>
+
+  <!-- Export dialog -->
+  <div class="modal-overlay" id="export-dialog" style="display:none">
+    <div class="modal export-modal" role="dialog" aria-labelledby="export-title">
+      <div class="modal-title" id="export-title">Export timeline</div>
+      <div class="modal-sub">Editor</div>
+      <div class="editor-cards">
+        <button type="button" class="editor-card" data-fmt="premiere"><span class="ec-name">Premiere Pro</span><span class="ec-file">XML</span></button>
+        <button type="button" class="editor-card" data-fmt="resolve"><span class="ec-name">DaVinci Resolve</span><span class="ec-file">XML</span></button>
+        <button type="button" class="editor-card" data-fmt="fcpxml"><span class="ec-name">Final Cut Pro</span><span class="ec-file">FCPXML</span></button>
+      </div>
+      <div class="modal-sub">Options</div>
+      <label class="opt-row"><input type="checkbox" id="opt-strip-audio">
+        <span><span class="opt-name">Remove camera audio</span><span class="opt-help">Only where a recorder covers the clip. Camera audio stays where no recorder was running.</span></span></label>
+      <label class="opt-row"><input type="checkbox" id="opt-drop-unsynced">
+        <span><span class="opt-name">Remove unsynced clips</span><span class="opt-help">Otherwise they go on their own tracks at the end of the timeline.</span></span></label>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="export-cancel">Cancel</button>
+        <button type="button" class="btn btn-export next" id="export-go">&#x2191; Export</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>
+
 </body>
 </html>

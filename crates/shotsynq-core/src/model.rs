@@ -16,7 +16,7 @@ impl Features {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Clip {
     pub path: String,
     pub name: String,
@@ -34,6 +34,19 @@ pub struct Clip {
     /// Camera/recorder model if the file says ("Canon EOS C70"), else a brand guess.
     pub device: Option<String>,
     pub sample_rate: u32,
+    /// Recording start (seconds, any epoch) when the file says; used to tell
+    /// identical devices apart.
+    pub rec_start: Option<f64>,
+    /// Why this clip can't be synced before trying, e.g. "silent audio".
+    pub audio_note: Option<String>,
+    /// Shared by files recorded together by one device (see `take_key`).
+    pub take_key: Option<String>,
+    /// Was part of the last sync (false = added afterwards).
+    pub sync_tried: bool,
+    /// Which drop of files this came in with.
+    pub batch: u64,
+    /// Why the last sync couldn't place it, when known.
+    pub sync_note: Option<String>,
     pub audio_loaded: bool,
     pub load_error: Option<String>,
     pub waveform: Vec<f32>,
@@ -53,51 +66,52 @@ pub struct Track {
     pub clips: Vec<Clip>,
     pub synced: bool,
     pub confidence: f64,
+    /// Stable id (track indices shift as tracks come and go).
+    pub id: u64,
+    /// Name was generated (not typed by the user), so it may be renumbered.
+    pub auto_name: bool,
 }
 
 impl Track {
     pub fn new(display_name: String, fingerprint: String, is_video: bool, color: String) -> Self {
-        Track { display_name, fingerprint, is_video, color, clips: vec![], synced: false, confidence: 0.0 }
+        Track {
+            display_name,
+            fingerprint,
+            is_video,
+            color,
+            clips: vec![],
+            synced: false,
+            confidence: 0.0,
+            id: 0,
+            auto_name: true,
+        }
     }
 
     /// "Canon EOS C70 · 16 clips" or, without a known model, "4K · 25 fps · 16 clips".
-    pub fn meta_string(&self) -> String {
+    /// Lines shown under the lane name, e.g.
+    /// ["Canon EOS C70 · 14 clips", "11m duration"].
+    pub fn meta_lines(&self) -> Vec<String> {
         let n = self.clips.len();
         if n == 0 {
-            return String::new();
+            return vec![];
         }
-        let first = &self.clips[0];
-        let clip_text = format!("{n} clip{}", if n != 1 { "s" } else { "" });
-        let mut parts: Vec<String> = vec![];
-        if let Some(d) = self.clips.iter().find_map(|c| c.device.clone()) {
-            // Known device: "Canon EOS C70 · 16 clips" is all that's needed
-            return format!("{d} · {clip_text}");
-        }
-        if self.is_video {
-            if parts.is_empty() {
-                parts.push(resolution_label(first.width, first.height));
-            }
-            let fps = first.frame_rate.unwrap_or(25.0);
-            parts.push(format!("{} fps", if fps.fract() == 0.0 { format!("{fps:.0}") } else { format!("{fps}") }));
-        } else {
-            if first.sample_rate > 0 {
-                let k = first.sample_rate as f64 / 1000.0;
-                parts.push(format!("{} kHz", if k.fract() == 0.0 { format!("{k:.0}") } else { format!("{k:.1}") }));
-            }
-            parts.push(if first.num_audio_channels > 1 { format!("{} ch", first.num_audio_channels) } else { "mono".into() });
-        }
-        parts.push(clip_text);
-        parts.join(" · ")
+        let count = format!("{n} clip{}", if n == 1 { "" } else { "s" });
+        let first = match self.clips.iter().find_map(|c| c.device.clone()) {
+            Some(d) => format!("{d} · {count}"),
+            None => count,
+        };
+        let total: f64 = self.clips.iter().map(|c| c.duration).sum();
+        vec![first, format!("{} duration", fmt_duration(total))]
     }
 }
 
-fn resolution_label(w: u32, h: u32) -> String {
-    match (w, h) {
-        (w, _) if w >= 3800 => "4K".into(),
-        (w, h) if w >= 2500 || h >= 1400 => format!("{h}p"),
-        (_, h) if h > 0 => format!("{h}p"),
-        _ => "Video".into(),
+/// 45 -> "45s", 660 -> "11m", 3900 -> "1h 05m"
+pub fn fmt_duration(secs: f64) -> String {
+    if secs < 60.0 {
+        return format!("{}s", secs.round() as u64);
     }
+    let m = (secs / 60.0).round() as u64;
+    if m < 60 { format!("{m}m") } else { format!("{}h {:02}m", m / 60, m % 60) }
 }
 
 /// Format a float the way Python's str() does for typical values (25.0, 29.97).
@@ -110,6 +124,47 @@ pub fn py_float(v: f64) -> String {
 }
 
 pub const TRACK_COLORS: [&str; 6] = ["#4f8ef7", "#f7934f", "#4fcf8a", "#f77fb3", "#c47af7", "#4fd6f7"];
+
+/// Files that are parts of one multi-file recording share a take key, e.g.
+/// Tascam "AUDIO__0001S12.wav" + "AUDIO__0001S34D06.wav" -> "audio__0001",
+/// Zoom "ZOOM0001_Tr1.WAV" + "ZOOM0001_TrLR.WAV" -> "zoom0001",
+/// "Interview_safety.wav" -> "interview". None if the name has no such marker.
+pub fn take_key(name: &str) -> Option<String> {
+    let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name).to_lowercase();
+    // Tascam: <take>S<1-2 digits>[D<0-2 digits>]
+    let b = stem.as_bytes();
+    let mut i = b.len();
+    let mut j = i;
+    while j > 0 && b[j - 1].is_ascii_digit() && i - j < 2 {
+        j -= 1;
+    }
+    if j > 0 && b[j - 1] == b'd' {
+        i = j - 1; // dual-record suffix
+    }
+    let mut k = i;
+    while k > 0 && b[k - 1].is_ascii_digit() && i - k < 2 {
+        k -= 1;
+    }
+    if k < i && k > 1 && b[k - 1] == b's' && b[k - 2].is_ascii_digit() {
+        return Some(stem[..k - 1].to_string());
+    }
+    // Zoom: <take>_Tr<...>
+    if let Some(pos) = stem.rfind("_tr") {
+        if pos > 0 && stem.len() > pos + 3 {
+            return Some(stem[..pos].to_string());
+        }
+    }
+    // Explicit safety/backup naming
+    for tok in ["_safety", " safety", "-safety", "_backup", " backup", "-backup", "_bu", "-bu"] {
+        if let Some(pos) = stem.rfind(tok) {
+            if pos > 0 {
+                return Some(stem[..pos].to_string());
+            }
+        }
+    }
+    None
+}
+
 
 // ── Natural sort ("C70_9" before "C70_10") ──────────────────────────────────
 
@@ -166,6 +221,21 @@ pub fn natural_cmp(a: &str, b: &str) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn take_keys() {
+        assert_eq!(take_key("AUDIO__0001S12.wav").as_deref(), Some("audio__0001"));
+        assert_eq!(take_key("AUDIO__0001S34D06.wav").as_deref(), Some("audio__0001"));
+        assert_eq!(take_key("TASCAM_0030S12D.wav").as_deref(), Some("tascam_0030"));
+        assert_eq!(take_key("TASCAM_0030S1.wav").as_deref(), Some("tascam_0030"));
+        assert_eq!(take_key("ZOOM0001_Tr1.WAV").as_deref(), Some("zoom0001"));
+        assert_eq!(take_key("ZOOM0001_TrLR.WAV").as_deref(), Some("zoom0001"));
+        assert_eq!(take_key("Interview_safety.wav").as_deref(), Some("interview"));
+        for n in ["TASCAM_0030.wav", "C70_690.mxf", "EOSR_0295.mp4", "DJI_03_20241106_133350.WAV", "IMG_9402.MOV", "GX010045.MP4"] {
+            assert_eq!(take_key(n), None, "{n}");
+        }
+    }
+
+
     #[test]
     fn natural() {
         let mut v = vec!["C70_10.mxf", "C70_9.mxf", "C70_100.mxf", "a2", "A1"];

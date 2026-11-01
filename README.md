@@ -61,7 +61,7 @@ ShotSynq is for your whole shoot, where built-in sync struggles:
 - **A whole day of takes:** separate takes are laid out one after another in recording order, using each camera's clock and file numbering.
 - **Clips that don't match:** these go to an **Unplaced** tray instead of a made-up position, so the timeline only shows real placements. Right-click to open a clip or show it in File Explorer.
 - **Recorder audio:** optionally replace camera (scratch) audio with recorder audio. This only happens where a recorder was actually running, so you never get silent gaps.
-- **Device names:** reads the camera model from file metadata where it's available (for example "Canon EOS C70") and names tracks Camera A, Camera B, Recorder.
+- **Device names:** reads the camera model from file metadata where it's available (for example "Canon EOS C70") and names tracks Camera 1, Camera 2, Recorder 1.
 - **Clips to review:** low-confidence matches are outlined in amber. Click the counters in the status bar to highlight synced, review or unplaced clips.
 
 **Supported files:** anything FFmpeg can read with an audio track, including MP4, MOV, MXF, MTS, AVI, MKV, WAV/BWF, MP3, AAC and M4A.
@@ -127,7 +127,7 @@ cargo run --release -p shotsynq-core --example cli -- tracks.json --export resol
 
 ```json
 [
-  {"name": "Camera A", "paths": ["C:/shoot/A/C0001.MXF", "C:/shoot/A/C0002.MXF"]},
+  {"name": "Camera 1", "paths": ["C:/shoot/A/C0001.MXF", "C:/shoot/A/C0002.MXF"]},
   {"name": "Recorder", "paths": ["C:/shoot/audio/ZOOM0001.WAV"]}
 ]
 ```
