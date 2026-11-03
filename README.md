@@ -12,6 +12,8 @@
 
 Version 0.10.0 · [All releases](../../releases)
 
+ShotSynq is a free alternative to PluralEyes and Syncaila. Add every camera and audio recorder from a shoot; it lines them up by their sound and exports one timeline to **Premiere Pro, DaVinci Resolve or Final Cut Pro**. No timecode needed.
+
 
 
 https://github.com/user-attachments/assets/16e9d0ec-bf21-4b6c-a69e-11fb5f86995c
@@ -24,7 +26,13 @@ https://github.com/user-attachments/assets/16e9d0ec-bf21-4b6c-a69e-11fb5f86995c
 
 ---
 
-ShotSynq is a free alternative to PluralEyes and Syncaila. Add every camera and audio recorder from a shoot; it lines them up by their sound and exports one timeline to **Premiere Pro, DaVinci Resolve or Final Cut Pro**. No timecode needed.
+## Doesn't my editor already do this?
+
+For one camera and one recorder, often yes. For a whole shoot, not well:
+
+- **Track sprawl.** Built-in sync often puts each recording on a new track. ShotSynq keeps one track per camera and recorder, however many times they started and stopped.
+- **One shot at a time.** Some editors only sync a handful of clips, or a single shot, per go. ShotSynq takes the entire shoot and gives you one timeline.
+- **Silent failures.** Clips it can't prove go in red at the end, and weak matches are flagged for you to check, rather than being placed wrongly without a word.
 
 ## How to use it
 
@@ -37,7 +45,7 @@ ShotSynq is a free alternative to PluralEyes and Syncaila. Add every camera and 
 
 ## How does it work?
 
-Cameras use dozens of containers and codecs. Rather than writing readers for each, ShotSynq calls [FFmpeg](https://ffmpeg.org), the open-source tool behind most video software. FFprobe reads each file's details (length, frame rate, timecode, camera model) and FFmpeg decodes just the sound to 16 kHz mono. Pictures are never decoded, which is why raw formats work: only their audio is needed. FFmpeg runs as a separate program and ships with the app.
+**1. Reading the files.** Cameras use dozens of containers and codecs. Rather than writing readers for each, ShotSynq calls [FFmpeg](https://ffmpeg.org), the open-source tool behind most video software. FFprobe reads each file's details (length, frame rate, timecode, camera model) and FFmpeg decodes just the sound to 16 kHz mono. Pictures are never decoded, which is why raw formats work: only their audio is needed. FFmpeg runs as a separate program and ships with the app.
 
 **2. Turning sound into a fingerprint.** Each clip's audio is split into 6 frequency bands, 100 times a second. Levels are evened out, so what's left is the *rhythm* of the sound, not its loudness or tone. That's why a camera's on-board mic still matches a lav: different sound quality, same rhythm.
 
