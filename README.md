@@ -35,11 +35,9 @@ ShotSynq is a free alternative to PluralEyes and Syncaila. Add every camera and 
 
 **Works with** anything FFmpeg can read with an audio track: MP4, MOV, MXF, MTS, MKV, WAV/BWF, FLAC, MP3 and more, including **Blackmagic RAW** and **ARRI MXF**.
 
-## Under the hood
+## How does it work?
 
-ShotSynq is written in Rust. The interface is a small web page in a [Tauri](https://tauri.app) window, so the app is light and starts instantly.
-
-**1. Reading the files: FFmpeg.** Cameras use dozens of containers and codecs. Rather than writing readers for each, ShotSynq calls [FFmpeg](https://ffmpeg.org), the open-source tool behind most video software. FFprobe reads each file's details (length, frame rate, timecode, camera model) and FFmpeg decodes just the sound to 16 kHz mono. Pictures are never decoded, which is why raw formats work: only their audio is needed. FFmpeg runs as a separate program and ships with the app.
+Cameras use dozens of containers and codecs. Rather than writing readers for each, ShotSynq calls [FFmpeg](https://ffmpeg.org), the open-source tool behind most video software. FFprobe reads each file's details (length, frame rate, timecode, camera model) and FFmpeg decodes just the sound to 16 kHz mono. Pictures are never decoded, which is why raw formats work: only their audio is needed. FFmpeg runs as a separate program and ships with the app.
 
 **2. Turning sound into a fingerprint.** Each clip's audio is split into 6 frequency bands, 100 times a second. Levels are evened out, so what's left is the *rhythm* of the sound, not its loudness or tone. That's why a camera's on-board mic still matches a lav: different sound quality, same rhythm.
 
