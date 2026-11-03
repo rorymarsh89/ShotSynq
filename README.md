@@ -8,9 +8,6 @@
 
 **Drop in the whole shoot. Get a synced timeline.**
 
-Line up footage from several cameras and separate audio recorders by their sound,<br>
-then open the result in Premiere Pro, DaVinci Resolve or Final Cut Pro.
-
 <a href="../../releases/latest"><img src="https://img.shields.io/badge/Download_for_Windows-Windows_10_%2F_11_·_x64-1f6feb?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="44"></a>
 
 Version 0.10.0 · [All releases](../../releases)
@@ -21,134 +18,65 @@ https://github.com/user-attachments/assets/16e9d0ec-bf21-4b6c-a69e-11fb5f86995c
 
 
 
-[Releases](../../releases) · [How it works](#how-sync-works) · [Limitations](#limitations) · [Build from source](#build-from-source)
-
 <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT licence"> <img src="https://img.shields.io/badge/platform-Windows-0078d4" alt="Windows">
 
 </div>
 
 ---
 
-ShotSynq is a free, open-source alternative to PluralEyes and Syncaila. Add the footage from every camera and the files from your audio recorder. ShotSynq matches them by their sound, places every clip on one timeline, and exports it to your editor.
+ShotSynq is a free alternative to PluralEyes and Syncaila. Add every camera and audio recorder from a shoot; it lines them up by their sound and exports one timeline to **Premiere Pro, DaVinci Resolve or Final Cut Pro**. No timecode needed.
 
-## Doesn't my editor already do this?
+## How to use it
 
-For simple jobs, yes - for one camera and one recorder.
+1. **Add media.** Drag in files or whole card folders. Each camera and recorder gets its own track.
+2. **Synchronise.** Clips slide into place, usually in about a second.
+3. **Check.** Weak matches are marked in amber: **Keep** or **Remove** each one. Anything that couldn't be synced sits in red at the end of the timeline. Move clips by dragging or with `,` and `.`; undo with Ctrl+Z.
+4. **Export.** Pick your editor. Your original files are referenced, never copied or changed.
 
-ShotSynq is for your whole shoot, where built-in sync struggles:
+**Works with** anything FFmpeg can read with an audio track: MP4, MOV, MXF, MTS, MKV, WAV/BWF, FLAC, MP3 and more, including **Blackmagic RAW** and **ARRI MXF**.
 
-- **Cameras that start and stop.** Dozens of clips per camera stay on one lane per device instead of spilling onto a new track for every recording.
-- **Messy, real-world days.** Cameras that wandered away from the main audio, a recorder that only ran for part of the day, takes with nothing in common. ShotSynq keeps what it can prove and doesn't force the rest.
-- **No silent failures.** Anything it couldn't match goes on its own Unsynced lane, so you know exactly what to check, rather than finding clips scattered or offset later.
-- **One sync, any editor.** The same result goes to Premiere Pro, DaVinci Resolve or Final Cut Pro. No timecode needed.
+## Under the hood
 
-## From shoot to edit
+ShotSynq is written in Rust. The interface is a small web page in a [Tauri](https://tauri.app) window, so the app is light and starts instantly.
 
-1. **Add media.** Drag in files or whole card folders, or click **+ Add media**. Files are grouped by device automatically.
-2. **Synchronise.** Usually done in about a second. Anything that couldn't be matched goes on an Unsynced lane at the end instead of being guessed at.
-3. **Export.** Choose your editor and options in the export dialog; ShotSynq remembers them.
+**1. Reading the files: FFmpeg.** Cameras use dozens of containers and codecs. Rather than writing readers for each, ShotSynq calls [FFmpeg](https://ffmpeg.org), the open-source tool behind most video software. FFprobe reads each file's details (length, frame rate, timecode, camera model) and FFmpeg decodes just the sound to 16 kHz mono. Pictures are never decoded, which is why raw formats work: only their audio is needed. FFmpeg runs as a separate program and ships with the app.
 
-| Editor | Export format |
-|---|---|
-| Adobe Premiere Pro | FCP 7 XML |
-| DaVinci Resolve | FCP 7 XML |
-| Final Cut Pro | FCPXML 1.10 *(beta)* |
+**2. Turning sound into a fingerprint.** Each clip's audio is split into 6 frequency bands, 100 times a second. Levels are evened out, so what's left is the *rhythm* of the sound, not its loudness or tone. That's why a camera's on-board mic still matches a lav: different sound quality, same rhythm.
 
-## What ShotSynq handles
+**3. Comparing every pair.** Every clip is compared with every clip from the other devices, at every possible offset at once, using FFT cross-correlation. A match only counts if it stands out clearly from all the other offsets. Repetitive sound that matches in two places is rejected.
 
-- **Cameras and recorders together:** any mix of cameras, phones and audio recorders, as long as they heard the same sound.
-- **Different mics:** matching works on the rhythm of the sound, not its tone, so a camera's on-board mic still lines up with a lav or recorder.
-- **A whole day of takes:** separate takes are laid out one after another in recording order, using each camera's clock and file numbering.
-- **Clips that don't match:** these go on an **Unsynced** lane after the synced section, with their waveforms, instead of a made-up position. They export on their own tracks at the end of the timeline, or can be left out. Right-click to open a clip or show it in File Explorer.
-- **Finished edits added by mistake:** an export of your edit matches the shoot in several places at once. ShotSynq spots this and leaves it unsynced rather than placing it wrongly.
-- **Remove camera audio:** optionally drop camera (scratch) audio in favour of recorder audio. This only happens where a recorder was actually running, so you never get silent gaps.
-- **Device names:** reads the camera model from file metadata where it's available (for example "Canon EOS C70") and names tracks Camera 1, Camera 2, Recorder 1.
-- **Clips to review:** low-confidence matches are outlined in amber. Click the counters in the status bar to highlight synced, review or unsynced clips.
+**4. Building the timeline.** Matches are accepted strongest first, and refused if they'd put two clips from one camera on top of each other, since a camera can't record twice at once. All matches are then solved together, so small errors average out. A clip that matches in several places at once, like an edit exported by mistake, is spotted and left out.
 
-**Supported files:** anything FFmpeg can read with an audio track, including MP4, MOV, MXF, MTS, AVI, MKV, WAV/BWF, FLAC, MP3, AAC and M4A.
-
-## How sync works
-
-ShotSynq compares every clip with every clip from the other devices, looking for a stretch of matching sound.
-
-1. **Strong matches become links.** A link is rejected if it would put two clips from the same camera on top of each other, since one camera can't record twice at once.
-2. **Positions are solved from all the links together.** Real gaps between recordings are kept.
-3. **Clips without a reliable link are left unsynced.** ShotSynq never forces a clip into a position.
-
-On a 49-clip test shoot (two cameras and a TASCAM recorder), every clip PluralEyes synced landed within two frames of PluralEyes' position. ShotSynq also placed a short take PluralEyes missed.
+**5. Exporting.** The result is written as FCP7 XML (Premiere and Resolve) or FCPXML (Final Cut Pro), pointing at your original files.
 
 ## Limitations
 
-- **Shared sound is required.** Clips are only matched when they recorded the same sound. Timecode-only sync isn't supported yet.
-- **No clock-drift correction.** Very long recordings from devices with drifting clocks may slip slightly over time.
-- **Windows only** for now.
-- **Final Cut Pro export is in beta.** It hasn't been tested in Final Cut Pro yet.
-- **The installer isn't code-signed.** Windows SmartScreen will show a warning the first time; choose **More info → Run anyway**.
-
-Always check the synced result before you start cutting.
-
-## Get started
-
-Download the installer from the [Releases page](../../releases/latest) and run it. It installs for your user account only, so no admin rights are needed. FFmpeg is included.
+- Clips must have recorded the same sound. Timecode-only sync isn't supported yet.
+- RED (.r3d) isn't readable by FFmpeg: sync the proxies, then relink in your editor.
+- No clock-drift correction yet, so very long takes may slip by a frame or so.
+- Windows only. Final Cut Pro export is untested. The installer isn't code-signed, so SmartScreen will warn once: **More info → Run anyway**.
 
 ## Build from source
 
-You need Windows 10 or 11 and the following, installed once:
-
-1. **[Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)**, with **Desktop development with C++** ticked.
-2. **[Rust](https://rustup.rs)** (stable).
-3. **The Tauri CLI:**
-   ```
-   cargo install tauri-cli --version "^2" --locked
-   ```
-
-Then, from the repository folder:
+Needs Windows 10/11, [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (Desktop development with C++), [Rust](https://rustup.rs) and the Tauri CLI (`cargo install tauri-cli --version "^2" --locked`).
 
 ```powershell
-# Downloads FFmpeg plus its licence into src-tauri/binaries (needed for the build)
-powershell -ExecutionPolicy Bypass -File .\setup-ffmpeg.ps1
-
-cargo tauri dev     # run the app
-cargo tauri build   # build the installer
+powershell -ExecutionPolicy Bypass -File .\setup-ffmpeg.ps1   # fetches FFmpeg
+cargo tauri dev      # run
+cargo tauri build    # build the installer
 ```
-
-The installer is created at `target\release\bundle\nsis\ShotSynq_<version>_x64-setup.exe`.
-
-> **Tip:** run the terminal as a normal user, not as Administrator. Windows blocks drag-and-drop from File Explorer into apps started from an admin terminal.
-
-### Command line
-
-There's a small command-line runner for testing and batch use:
-
-```
-cargo run --release -p shotsynq-core --example cli -- tracks.json --export resolve out.xml
-```
-
-`tracks.json` lists the files for each device:
-
-```json
-[
-  {"name": "Camera 1", "paths": ["C:/shoot/A/C0001.MXF", "C:/shoot/A/C0002.MXF"]},
-  {"name": "Recorder 1", "paths": ["C:/shoot/audio/ZOOM0001.WAV"]}
-]
-```
-
-### Project layout
 
 | Path | What's in it |
 |---|---|
-| `crates/shotsynq-core/src/engine.rs` | The sync engine. Tunable settings are at the top. |
-| `crates/shotsynq-core/src/media.rs` | Reading media through FFmpeg and FFprobe, and device detection |
-| `crates/shotsynq-core/src/export.rs` | Premiere/Resolve XML and FCPXML export |
-| `crates/shotsynq-core/src/session.rs` | Tracks, loading and the state shown in the app |
-| `src-tauri/` | The desktop app shell: file dialogs, drag and drop, app commands |
-| `ui/` | The interface (HTML, CSS, JavaScript) |
+| `crates/shotsynq-core/src/engine.rs` | The sync engine (settings at the top) |
+| `crates/shotsynq-core/src/media.rs` | Reading media through FFmpeg |
+| `crates/shotsynq-core/src/export.rs` | XML export |
+| `crates/shotsynq-core/src/session.rs` | Tracks, edits and undo |
+| `src-tauri/`, `ui/` | The app window and interface |
 
 ## Licence
 
-ShotSynq is released under the [MIT Licence](LICENSE).
-
-The installer includes unmodified [FFmpeg](https://ffmpeg.org) executables (the gyan.dev build), which are licensed under GPLv3 and run as separate programs. Their licence, exact version and source links ship with the app; open them from **Licences** in the app's sidebar, or see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+[MIT](LICENSE). The installer includes unmodified FFmpeg executables (GPLv3), run as separate programs; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) or **Licences** in the app.
 
 ---
 
