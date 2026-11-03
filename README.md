@@ -12,18 +12,13 @@
 
 Version 0.10.0 · [All releases](../../releases)
 
-ShotSynq is a free alternative to PluralEyes and Syncaila. Add every camera and audio recorder from a shoot; it lines them up by their sound and exports one timeline to **Premiere Pro, DaVinci Resolve or Final Cut Pro**. No timecode needed.
-
-
+A free, open source alternative to PluralEyes and Syncaila. Add multiple camera and audio sources from a shoot, and align using audio waveforms. **Export to Adobe Premiere Pro, DaVinci Resolve or Final Cut Pro**. No timecode needed.
 
 https://github.com/user-attachments/assets/16e9d0ec-bf21-4b6c-a69e-11fb5f86995c
-
-
 
 <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT licence"> <img src="https://img.shields.io/badge/platform-Windows-0078d4" alt="Windows">
 
 </div>
-
 ---
 
 ## Doesn't my editor already do this?
