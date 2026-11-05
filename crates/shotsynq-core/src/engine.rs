@@ -258,10 +258,16 @@ pub struct SyncInput {
     /// Files recorded together by one device (e.g. a recorder's main and
     /// safety files) share this and are locked to the same start.
     pub take: Option<String>,
+    /// Placed by hand: (input it's pinned to, its start minus that input's
+    /// start). Overrides whatever the sound says about this clip.
+    pub pin: Option<(usize, f64)>,
 }
 
 /// Weight given to links between parts of one recording.
 const TAKE_LINK_PSR: f64 = 1000.0;
+/// Weight of a hand placement: above any sound match, below a take link. It
+/// counts as a real match (a group with one is a valid sync).
+const MANUAL_PSR: f64 = 999.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placement {
@@ -581,6 +587,15 @@ pub fn sync(
                 "link {} -> {}: {:+.3}s psr={:.1} ratio={:.2}",
                 inputs[i].name, inputs[j].name, m.offset, m.psr, m.ratio
             );
+        }
+    }
+
+    // Hand placements replace the clip's sound matches
+    for (i, inp) in inputs.iter().enumerate() {
+        if let Some((a, d)) = inp.pin.filter(|&(a, _)| a < n && a != i) {
+            edges.retain(|&(x, y, _, _)| x != i && y != i);
+            edges.push((a, i, d, MANUAL_PSR));
+            log::info!("pinned {} to {} at {:+.3}s", inp.name, inputs[a].name, d);
         }
     }
 

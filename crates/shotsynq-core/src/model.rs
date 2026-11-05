@@ -23,6 +23,8 @@ pub struct Clip {
     pub duration: f64,
     pub frame_rate: Option<f64>,
     pub timecode: String,
+    /// The file carries its own start timecode (timecode is "00:00:00:00" otherwise).
+    pub has_timecode: bool,
     pub creation_time: Option<String>,
     pub width: u32,
     pub height: u32,
@@ -47,6 +49,19 @@ pub struct Clip {
     pub batch: u64,
     /// Why the last sync couldn't place it, when known.
     pub sync_note: Option<String>,
+    /// Placed by hand.
+    pub manual: bool,
+    /// A weak match the user has looked at and accepted.
+    pub confirmed: bool,
+    /// The user said its match was wrong: left out of syncing until they
+    /// place it by hand.
+    pub excluded: bool,
+    /// Id of the lane this clip's device was given when loaded. Sync treats
+    /// clips with the same device lane as one device, wherever they're moved.
+    pub device_lane: u64,
+    /// For a hand-placed clip: the clip it's pinned to (path) and its start
+    /// minus that clip's start, so the placement survives a re-sync.
+    pub pin: Option<(String, f64)>,
     pub audio_loaded: bool,
     pub load_error: Option<String>,
     pub waveform: Vec<f32>,
@@ -70,6 +85,8 @@ pub struct Track {
     pub id: u64,
     /// Name was generated (not typed by the user), so it may be renumbered.
     pub auto_name: bool,
+    /// Made by the user with "New lane": kept even when empty.
+    pub user_lane: bool,
 }
 
 impl Track {
@@ -84,6 +101,7 @@ impl Track {
             confidence: 0.0,
             id: 0,
             auto_name: true,
+            user_lane: false,
         }
     }
 
@@ -95,13 +113,15 @@ impl Track {
         if n == 0 {
             return vec![];
         }
+        // Device on its own line (cut short if long), counts on the next, so a
+        // long camera name never wraps
         let count = format!("{n} clip{}", if n == 1 { "" } else { "s" });
-        let first = match self.clips.iter().find_map(|c| c.device.clone()) {
-            Some(d) => format!("{d} · {count}"),
-            None => count,
-        };
         let total: f64 = self.clips.iter().map(|c| c.duration).sum();
-        vec![first, format!("{} duration", fmt_duration(total))]
+        let stats = format!("{count} · {}", fmt_duration(total));
+        match self.clips.iter().find_map(|c| c.device.clone()) {
+            Some(d) => vec![d, stats],
+            None => vec![stats],
+        }
     }
 }
 
@@ -123,7 +143,13 @@ pub fn py_float(v: f64) -> String {
     }
 }
 
-pub const TRACK_COLORS: [&str; 6] = ["#4f8ef7", "#f7934f", "#4fcf8a", "#f77fb3", "#c47af7", "#4fd6f7"];
+/// Track colours. No reds, oranges, pinks or yellows: red marks unsynced
+/// clips and amber marks weak matches, so those must stand out.
+/// Ten, so the first ten tracks never share a colour.
+pub const TRACK_COLORS: [&str; 10] = [
+    "#4f8ef7", "#4fcf8a", "#b07af7", "#4fd6f7", "#a6d96a",
+    "#8fa3bf", "#8b93ff", "#2fa89a", "#d0d4dc", "#d4bfff",
+];
 
 /// Files that are parts of one multi-file recording share a take key, e.g.
 /// Tascam "AUDIO__0001S12.wav" + "AUDIO__0001S34D06.wav" -> "audio__0001",

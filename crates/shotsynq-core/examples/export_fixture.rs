@@ -9,15 +9,15 @@ fn main() {
         tr.clips = t["clips"].as_array().unwrap().iter().map(|c| Clip {
             path: c["path"].as_str().unwrap().into(), name: c["name"].as_str().unwrap().into(),
             duration: c["duration"].as_f64().unwrap(), frame_rate: c["frame_rate"].as_f64(),
-            timecode: c["timecode"].as_str().unwrap().into(), creation_time: None,
+            timecode: c["timecode"].as_str().unwrap().into(), has_timecode: true, creation_time: None,
             width: c["width"].as_u64().unwrap() as u32, height: c["height"].as_u64().unwrap() as u32,
             is_video: c["is_video"].as_bool().unwrap(), num_audio_channels: c["ch"].as_u64().unwrap() as u32,
-            fingerprint: String::new(), device: None, sample_rate: 48000, rec_start: None, audio_note: None, take_key: None, sync_tried: true, batch: 0, sync_note: None, audio_loaded: true, load_error: None, waveform: vec![], features: None,
+            fingerprint: String::new(), device: None, sample_rate: 48000, rec_start: None, audio_note: None, take_key: None, sync_tried: true, batch: 0, sync_note: None, manual: false, confirmed: false, excluded: false, device_lane: 0, pin: None, audio_loaded: true, load_error: None, waveform: vec![], features: None,
             offset: c["offset"].as_f64().unwrap(), synced: c["synced"].as_bool().unwrap(), confidence: 1.0,
         }).collect();
         tr
     }).collect();
-    let tracks = export::split_unsynced(&tracks);
+    let tracks = export::place_unsynced(&tracks);
     let strip = if a.get(3).is_some_and(|x| x == "strip") { export::scratch_to_strip(&tracks) } else { Default::default() };
     let mut n = 0;
     let mut ids = || { n += 1; format!("ID{n:04}") };

@@ -97,16 +97,17 @@ fn tag<'a>(tags: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
-fn timecode(info: &Value) -> String {
+/// Start timecode, if the file carries one.
+fn timecode(info: &Value) -> Option<String> {
     if let Some(t) = tag(&info["format"]["tags"], "timecode") {
-        return t.to_string();
+        return Some(t.to_string());
     }
     for s in streams(info) {
         if let Some(t) = tag(&s["tags"], "timecode") {
-            return t.to_string();
+            return Some(t.to_string());
         }
     }
-    "00:00:00:00".into()
+    None
 }
 
 fn creation_time(info: &Value) -> Option<String> {
@@ -145,8 +146,8 @@ fn title_case(s: &str) -> String {
     if s.chars().any(|c| c.is_lowercase()) {
         return s.to_string();
     }
-    // "CANON" -> "Canon"; keep short all-caps brands (DJI, JVC) as they are
-    if s.len() <= 3 {
+    // "CANON" -> "Canon"; brands styled in capitals stay that way
+    if s.len() <= 3 || ["ARRI", "TASCAM"].contains(&s) {
         return s.to_string();
     }
     let mut c = s.chars();
@@ -156,12 +157,22 @@ fn title_case(s: &str) -> String {
 /// Best-effort device name from container metadata, then filename conventions.
 fn device_name(info: &Value, path: &str) -> Option<String> {
     let ft = &info["format"]["tags"];
-    let pairs = [("company_name", "product_name"), ("make", "model"), ("com.apple.quicktime.make", "com.apple.quicktime.model")];
+    let pairs = [
+        ("company_name", "product_name"),                         // MXF (Canon, Sony…)
+        ("make", "model"),
+        ("com.apple.quicktime.make", "com.apple.quicktime.model"), // iPhone
+        ("manufacturer", "camera_type"),                          // Blackmagic RAW
+    ];
     for (mk, md) in pairs {
         let make = tag(ft, mk).map(title_case);
         let model = tag(ft, md).map(|s| s.trim().to_string());
         match (make, model) {
-            (Some(a), Some(b)) if b.to_lowercase().starts_with(&a.to_lowercase()) => return Some(b),
+            // "Blackmagic Design" + "Blackmagic Cinema Camera 6K": the model says it all
+            (Some(a), Some(b))
+                if b.to_lowercase().starts_with(&a.split_whitespace().next().unwrap_or("").to_lowercase()) =>
+            {
+                return Some(b)
+            }
             (Some(a), Some(b)) => return Some(format!("{a} {b}")),
             (None, Some(b)) => return Some(b),
             _ => {}
@@ -185,8 +196,8 @@ fn device_name(info: &Value, path: &str) -> Option<String> {
     None
 }
 
-/// When recording started: container creation time, or for MXF the
-/// modification (end) time minus the duration.
+/// When recording started (or, for some cameras, stopped): container creation
+/// time, or for MXF the modification date. Lane logic allows for either.
 fn recording_start(info: &Value) -> Option<f64> {
     let ft = &info["format"]["tags"];
     if let Some(t) = tag(ft, "com.apple.quicktime.creationdate").and_then(engine::parse_creation_time) {
@@ -212,7 +223,8 @@ pub fn load_metadata(path: &str) -> Result<Clip, String> {
         name: Path::new(path).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
         duration,
         frame_rate: frame_rate(&info),
-        timecode: timecode(&info),
+        timecode: timecode(&info).unwrap_or_else(|| "00:00:00:00".into()),
+        has_timecode: timecode(&info).is_some(),
         creation_time: creation_time(&info),
         width: v.map(|v| v["width"].as_u64().unwrap_or(1920) as u32).unwrap_or(0),
         height: v.map(|v| v["height"].as_u64().unwrap_or(1080) as u32).unwrap_or(0),
@@ -226,6 +238,11 @@ pub fn load_metadata(path: &str) -> Result<Clip, String> {
         sync_tried: false,
         batch: 0,
         sync_note: None,
+        manual: false,
+        confirmed: false,
+        excluded: false,
+        device_lane: 0,
+        pin: None,
         take_key: if v.is_none() { crate::model::take_key(&Path::new(path).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()) } else { None },
         audio_loaded: false,
         load_error: None,
@@ -359,6 +376,9 @@ pub fn load_audio(clip: &mut Clip) -> Result<(), String> {
     }
     clip.waveform = waveform_peaks(&audio, WAVEFORM_BARS);
     clip.features = engine::compute_features(&audio, SYNC_SAMPLE_RATE).map(Arc::new);
+    if clip.features.is_none() {
+        clip.audio_note = Some("too short to sync".into());
+    }
     clip.audio_loaded = true;
     Ok(())
 }
@@ -366,4 +386,21 @@ pub fn load_audio(clip: &mut Clip) -> Result<(), String> {
 /// Features from an already-decoded buffer (tests/CLI).
 pub fn features_for(audio: &[f32]) -> Option<Features> {
     engine::compute_features(audio, SYNC_SAMPLE_RATE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_names() {
+        let braw = serde_json::json!({"format": {"tags": {
+            "manufacturer": "Blackmagic Design", "camera_type": "Blackmagic Cinema Camera 6K"}}});
+        assert_eq!(device_name(&braw, "A001_C013.braw").as_deref(), Some("Blackmagic Cinema Camera 6K"));
+        let c70 = serde_json::json!({"format": {"tags": {"company_name": "CANON", "product_name": "EOS C70"}}});
+        assert_eq!(device_name(&c70, "x.mxf").as_deref(), Some("Canon EOS C70"));
+        let iphone = serde_json::json!({"format": {"tags": {
+            "com.apple.quicktime.make": "Apple", "com.apple.quicktime.model": "iPhone 15 Pro"}}});
+        assert_eq!(device_name(&iphone, "IMG_1.MOV").as_deref(), Some("Apple iPhone 15 Pro"));
+    }
 }

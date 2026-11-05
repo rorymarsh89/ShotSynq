@@ -10,7 +10,7 @@
 
 <a href="../../releases/latest"><img src="https://img.shields.io/badge/Download_for_Windows-Windows_10_%2F_11_·_x64-1f6feb?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="44"></a>
 
-Version 0.10.0 · [All releases](../../releases)
+Version 0.11.0 · [All releases](../../releases)
 
 A free, open source alternative to PluralEyes and Syncaila. Add multiple camera and audio sources from a shoot, and align using audio waveforms. **Export to Adobe Premiere Pro, DaVinci Resolve or Final Cut Pro**. No timecode needed.
 

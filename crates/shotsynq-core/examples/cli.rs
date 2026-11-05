@@ -28,7 +28,7 @@ fn main() {
     for (ti, t) in tracks.iter().enumerate() {
         for (ci, c) in t.clips.iter().enumerate() {
             inputs.push(engine::SyncInput { name: c.name.clone(), track: ti, duration: c.duration,
-                creation_time: c.creation_time.clone(), features: c.features.clone(), take: c.take_key.clone() });
+                creation_time: c.creation_time.clone(), features: c.features.clone(), take: c.take_key.clone(), pin: None });
             map.push((ti, ci));
         }
     }

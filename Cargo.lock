@@ -2927,7 +2927,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "shotsynq"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "env_logger",
  "log",
@@ -2941,7 +2941,7 @@ dependencies = [
 
 [[package]]
 name = "shotsynq-core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "log",
  "realfft",

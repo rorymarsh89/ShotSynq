@@ -9,7 +9,7 @@ use shotsynq_core::{engine, export, media, session::Session};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-const MEDIA_EXTS: [&str; 12] = ["mp4", "mov", "mxf", "avi", "mkv", "mts", "mp3", "wav", "aac", "m4a", "bwf", "flac"];
+const MEDIA_EXTS: [&str; 13] = ["mp4", "mov", "mxf", "avi", "mkv", "mts", "mp3", "wav", "aac", "m4a", "bwf", "flac", "braw"];
 
 struct Job {
     generation: u64,
@@ -44,8 +44,12 @@ fn set_status(app: &AppHandle, text: &str, kind: &str) {
 }
 
 fn is_media(path: &str) -> bool {
-    std::path::Path::new(path)
-        .extension()
+    let p = std::path::Path::new(path);
+    // macOS leaves "._name" metadata files beside media copied off a Mac
+    if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("._")) {
+        return false;
+    }
+    p.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| MEDIA_EXTS.contains(&e.to_ascii_lowercase().as_str()))
 }
@@ -191,6 +195,7 @@ fn run_sync(app: AppHandle, st: State<AppState>) {
         if !s.can_sync() {
             return;
         }
+        s.checkpoint(); // a sync can be undone
         s.syncing = true;
         s.synced = false;
         let (inputs, map) = s.sync_inputs();
@@ -218,15 +223,20 @@ fn run_sync(app: AppHandle, st: State<AppState>) {
                     drop(s);
                     push_state_with_status(&app, &text, kind);
                 } else {
+                    s.drop_checkpoint();
                     drop(s);
                     push_state_with_status(&app, "Media changed during sync — please synchronise again", "warning");
                 }
             }
             Err(engine::SyncError::Cancelled) => {
+                s.drop_checkpoint();
+                s.synced = s.tracks.iter().flat_map(|t| &t.clips).any(|c| c.synced);
                 drop(s);
                 push_state_with_status(&app, "Sync cancelled", "default");
             }
             Err(e) => {
+                s.drop_checkpoint();
+                s.synced = s.tracks.iter().flat_map(|t| &t.clips).any(|c| c.synced);
                 drop(s);
                 push_state_with_status(&app, &format!("Sync failed: {e}"), "error");
             }
@@ -254,6 +264,78 @@ fn rename_track(st: State<AppState>, index: usize, name: String) {
 fn delete_clip(app: AppHandle, st: State<AppState>, track_index: usize, clip_index: usize) {
     st.session.lock().unwrap().delete_clip(track_index, clip_index);
     push_state(&app);
+}
+
+/// Place a clip by hand (drag or nudge). `nudge`: a keyboard nudge.
+#[tauri::command]
+fn move_clip(app: AppHandle, st: State<AppState>, track_index: usize, clip_index: usize, offset: f64, nudge: bool) {
+    st.session.lock().unwrap().move_clip(track_index, clip_index, offset, nudge);
+    push_state(&app);
+}
+
+#[tauri::command]
+fn move_clips(app: AppHandle, st: State<AppState>, moves: Vec<(usize, usize, f64)>) {
+    st.session.lock().unwrap().move_clips(&moves);
+    push_state(&app);
+}
+
+#[tauri::command]
+fn delete_clips(app: AppHandle, st: State<AppState>, clips: Vec<(usize, usize)>) {
+    st.session.lock().unwrap().delete_clips(&clips);
+    push_state(&app);
+}
+
+#[tauri::command]
+fn confirm_clip(app: AppHandle, st: State<AppState>, track_index: usize, clip_index: usize) {
+    st.session.lock().unwrap().confirm_clip(track_index, clip_index);
+    push_state_with_status(&app, "Kept", "default");
+}
+
+#[tauri::command]
+fn confirm_all(app: AppHandle, st: State<AppState>) {
+    let n = st.session.lock().unwrap().confirm_all();
+    push_state_with_status(&app, &format!("Accepted {n} match{}", if n == 1 { "" } else { "es" }), "default");
+}
+
+#[tauri::command]
+fn unsync_clip(app: AppHandle, st: State<AppState>, track_index: usize, clip_index: usize) {
+    st.session.lock().unwrap().unsync_clip(track_index, clip_index);
+    push_state_with_status(&app, "Removed · it's in red at the end; drag it into place manually if you know where it goes", "default");
+}
+
+#[tauri::command]
+fn add_lane(app: AppHandle, st: State<AppState>) {
+    st.session.lock().unwrap().add_lane();
+    push_state(&app);
+}
+
+/// Move clips to another lane, keeping their time position.
+#[tauri::command]
+fn move_to_lane(app: AppHandle, st: State<AppState>, clips: Vec<(usize, usize)>, target: usize) {
+    let r = st.session.lock().unwrap().move_to_lane(&clips, target);
+    match r {
+        Ok(0) => push_state(&app),
+        Ok(n) => push_state_with_status(&app, &format!("Moved {n} clip{}", if n == 1 { "" } else { "s" }), "default"),
+        Err(e) => push_state_with_status(&app, &e, "warning"),
+    }
+}
+
+#[tauri::command]
+fn move_track(app: AppHandle, st: State<AppState>, from: usize, to: usize) {
+    st.session.lock().unwrap().move_track(from, to);
+    push_state(&app);
+}
+
+#[tauri::command]
+fn undo(app: AppHandle, st: State<AppState>) {
+    let done = st.session.lock().unwrap().undo();
+    if done { push_state_with_status(&app, "Undone", "default") }
+}
+
+#[tauri::command]
+fn redo(app: AppHandle, st: State<AppState>) {
+    let done = st.session.lock().unwrap().redo();
+    if done { push_state_with_status(&app, "Redone", "default") }
 }
 
 fn clip_path(st: &State<AppState>, track_index: usize, clip_index: usize) -> Option<String> {
@@ -371,7 +453,7 @@ fn open_notices(app: AppHandle) {
 #[tauri::command]
 fn remove_unsynced(app: AppHandle, st: State<AppState>) {
     let n = st.session.lock().unwrap().remove_unsynced();
-    push_state_with_status(&app, &format!("Removed {n} unsynced clip{}", if n == 1 { "" } else { "s" }), "default");
+    push_state_with_status(&app, &format!("Removed {n} unsynced clip{} · Undo brings {} back", if n == 1 { "" } else { "s" }, if n == 1 { "it" } else { "them" }), "default");
 }
 
 #[tauri::command]
@@ -481,11 +563,22 @@ fn main() {
             delete_clip,
             clear_all,
             remove_unsynced,
+            move_clips,
             open_clip,
             app_version,
             open_notices,
             get_prefs,
             set_prefs,
+            move_clip,
+            delete_clips,
+            add_lane,
+            confirm_clip,
+            confirm_all,
+            unsync_clip,
+            move_to_lane,
+            move_track,
+            undo,
+            redo,
             focus_window,
             export_timeline
         ])

@@ -17,6 +17,8 @@
         <span class="app-title">ShotSynq</span>
       </div>
       <div class="actions">
+        <button class="btn btn-icon" id="btn-undo" disabled title="Undo (Ctrl+Z)">&#x21B6;</button>
+        <button class="btn btn-icon" id="btn-redo" disabled title="Redo (Ctrl+Shift+Z)">&#x21B7;</button>
         <button class="btn" id="btn-add">+ Add media</button>
         <button class="btn btn-sync" id="btn-sync" disabled>&#x21BB; Synchronise</button>
         <button class="btn btn-cancel"      id="btn-cancel" style="display:none">&#x2715; Cancel</button>
@@ -53,6 +55,18 @@
             </div>
           </div>
         </div>
+        <!-- Unsynced bar: how many clips didn't sync, and where they are -->
+        <div id="new-bar" class="review-bar new-bar" style="display:none"></div>
+    <div id="unsynced-bar" class="review-bar unsynced-bar" style="display:none"></div>
+        <!-- Review bar: weak matches to check, one at a time -->
+        <div id="review-bar" class="review-bar" style="display:none"></div>
+        <div id="unsynced-panel" class="unsynced-panel" style="display:none">
+          <div class="up-head">
+            <span class="up-title">Unsynced &middot; <span id="up-count">0</span></span>
+            <span class="up-sub" id="up-hint">drag a clip up onto the timeline to place it manually</span>
+          </div>
+          <div id="up-clips" class="up-clips"></div>
+        </div>
         <div class="zoombar" id="zoombar">
           <div class="zoombar-handle" id="zoombar-handle">
             <div class="zoombar-grip zoombar-grip-l" id="zoombar-grip-l"></div>
@@ -68,9 +82,20 @@
       <div id="status-dot" class="status-dot" style="display:none"></div>
       <div id="status-chips" class="status-chips" style="display:none"></div>
       <span id="status-text" class="status-text">Add media files to get started</span>
-      <span class="zoom-hint" id="zoom-hint">Alt+scroll to zoom &nbsp;&middot;&nbsp; scroll to pan &nbsp;&middot;&nbsp; drag handle ends to resize view</span>
-      <span class="footer-stats" id="footer-stats" style="display:none"
-            title="Alt+scroll to zoom · scroll to pan · drag handle ends to resize view"></span>
+      <span class="footer-stats" id="footer-stats" style="display:none"></span>
+      <div class="shortcuts" id="shortcuts" tabindex="0">
+        <span class="shortcuts-btn"><kbd>?</kbd> Shortcuts</span>
+        <div class="shortcuts-pop" role="tooltip">
+          <div class="sk-row"><span class="sk-keys"><svg class="sk-mouse wheel" viewBox="0 0 16 22" aria-hidden="true"><path class="lb" d="M8 1.5A6.5 6.5 0 0 0 1.5 8V9H8Z"/><path class="rb" d="M8 1.5A6.5 6.5 0 0 1 14.5 8V9H8Z"/><rect class="body" x="1" y="1" width="14" height="20" rx="7"/><rect class="w" x="6.6" y="3.2" width="2.8" height="4.4" rx="1.4"/></svg></span><span class="sk-what">Zoom</span></div>
+          <div class="sk-row"><span class="sk-keys"><kbd>Alt</kbd><span class="sk-plus">+</span><svg class="sk-mouse wheel" viewBox="0 0 16 22" aria-hidden="true"><path class="lb" d="M8 1.5A6.5 6.5 0 0 0 1.5 8V9H8Z"/><path class="rb" d="M8 1.5A6.5 6.5 0 0 1 14.5 8V9H8Z"/><rect class="body" x="1" y="1" width="14" height="20" rx="7"/><rect class="w" x="6.6" y="3.2" width="2.8" height="4.4" rx="1.4"/></svg></span><span class="sk-what">Move along the timeline</span></div>
+          <div class="sk-row"><span class="sk-keys"><kbd>Shift</kbd><span class="sk-plus">+</span><svg class="sk-mouse wheel" viewBox="0 0 16 22" aria-hidden="true"><path class="lb" d="M8 1.5A6.5 6.5 0 0 0 1.5 8V9H8Z"/><path class="rb" d="M8 1.5A6.5 6.5 0 0 1 14.5 8V9H8Z"/><rect class="body" x="1" y="1" width="14" height="20" rx="7"/><rect class="w" x="6.6" y="3.2" width="2.8" height="4.4" rx="1.4"/></svg></span><span class="sk-what">Scroll through tracks</span></div>
+          <div class="sk-row"><span class="sk-keys"><kbd>R</kbd></span><span class="sk-what">Reset the view</span></div>
+          <div class="sk-row"><span class="sk-keys"><kbd>,</kbd><kbd>.</kbd></span><span class="sk-what">Nudge a clip one frame</span></div>
+          <div class="sk-row"><span class="sk-keys"><span class="sk-box"></span></span><span class="sk-what">Drag on empty space to select several</span></div>
+          <div class="sk-row"><span class="sk-keys"><kbd>Delete</kbd></span><span class="sk-what">Remove selected clips</span></div>
+          <div class="sk-row"><span class="sk-keys"><kbd>Ctrl</kbd><span class="sk-plus">+</span><kbd>Z</kbd></span><span class="sk-what">Undo</span></div>
+        </div>
+      </div>
     </div>
 
   </div>
